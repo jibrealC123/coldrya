@@ -202,4 +202,10 @@ export const COUNTRIES = [
   { code: "zw", name: "Zimbabwe" },
 ];
 
-export const flagUrl = (code, w = 40) => `https://flagcdn.com/w${w}/${code}.png`;
+// flagcdn only serves these fixed widths — snap up to the nearest one so any
+// requested size resolves to a real image (e.g. 28 → 40) instead of a 404.
+const FLAGCDN_WIDTHS = [20, 40, 80, 160, 320, 640, 1280, 2560];
+export const flagUrl = (code, w = 40) => {
+  const width = FLAGCDN_WIDTHS.find((x) => x >= w) || 2560;
+  return `https://flagcdn.com/w${width}/${String(code || "us").toLowerCase()}.png`;
+};
