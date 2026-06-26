@@ -568,6 +568,44 @@ kbd {
   text-align: center;
 }
 
+.coop-create {
+  width: 100%;
+  padding: 14px 0;
+}
+
+.coop-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.coop-divider::before,
+.coop-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--c-border);
+}
+
+.coop-divider span {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.join-share {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.copy-btn {
+  min-width: 180px;
+}
+
 .leave-btn {
   position: absolute;
   top: 18px;

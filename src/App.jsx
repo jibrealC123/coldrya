@@ -7,6 +7,14 @@ import "./index.css";
 const HIGH_KEY = "voidraider_high";
 const PILOT_KEY = "voidraider_pilot";
 
+// readable codes: no ambiguous chars (no O/0, I/1)
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function genRoomCode(len = 4) {
+  let s = "";
+  for (let i = 0; i < len; i++) s += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  return s;
+}
+
 function loadPilot() {
   try {
     const raw = localStorage.getItem(PILOT_KEY);
@@ -32,6 +40,8 @@ export default function App() {
   const [netStatus, setNetStatus] = useState("idle"); // idle|connecting|connected|reconnecting
   const [coopPhase, setCoopPhase] = useState("idle"); // idle|connecting|joined|live
   const [joinedRoom, setJoinedRoom] = useState("");
+  const [hostMode, setHostMode] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
   const joinTimer = useRef(null);
@@ -72,36 +82,63 @@ export default function App() {
     engineRef.current?.startGame(pilot);
   }, [pilot]);
 
-  const joinCoop = useCallback(() => {
-    const code = (room.trim() || "LOBBY").toUpperCase().slice(0, 8);
-    setMode("coop");
-    setCoopPhase("connecting");
-    setNetStatus("connecting");
-    const startedAt = Date.now();
-    const net = new NetClient({
-      onStatus: (s) => setNetStatus(s),
-      onWelcome: (msg) => {
-        // always show "PLEASE WAIT" for a beat, then the joined splash,
-        // then drop into the arena
-        const minWait = Math.max(0, 800 - (Date.now() - startedAt));
-        clearTimeout(joinTimer.current);
-        joinTimer.current = setTimeout(() => {
-          setJoinedRoom(msg.room || code);
-          setCoopPhase("joined");
+  const enterArena = useCallback(() => {
+    engineRef.current?.startMultiplayer(netRef.current, pilot);
+    setCoopPhase("live");
+  }, [pilot]);
+
+  const joinCoop = useCallback(
+    (codeArg, asHost = false) => {
+      const code = ((codeArg ?? room).trim() || "LOBBY").toUpperCase().slice(0, 8);
+      setRoom(code);
+      setHostMode(asHost);
+      setCopied(false);
+      setMode("coop");
+      setCoopPhase("connecting");
+      setNetStatus("connecting");
+      const startedAt = Date.now();
+      const net = new NetClient({
+        onStatus: (s) => setNetStatus(s),
+        onWelcome: (msg) => {
+          const minWait = Math.max(0, 800 - (Date.now() - startedAt));
+          clearTimeout(joinTimer.current);
           joinTimer.current = setTimeout(() => {
-            engineRef.current?.startMultiplayer(net, pilot);
-            setCoopPhase("live");
-          }, 1700);
-        }, minWait);
+            setJoinedRoom(msg.room || code);
+            setCoopPhase("joined");
+            // host stays on the splash to copy/share the code, then taps
+            // ENTER ARENA; joiners auto-advance into the game.
+            if (!asHost) {
+              joinTimer.current = setTimeout(() => {
+                engineRef.current?.startMultiplayer(net, pilot);
+                setCoopPhase("live");
+              }, 1700);
+            }
+          }, minWait);
+        },
+        onSnap: (snap) => {
+          engineRef.current?.applySnap(snap);
+          setPlayerCount(snap.players.length);
+        },
+      });
+      netRef.current = net;
+      net.connect({ name: pilot.username, country: pilot.country.code, room: code });
+    },
+    [room, pilot]
+  );
+
+  const createRoom = useCallback(() => {
+    joinCoop(genRoomCode(), true);
+  }, [joinCoop]);
+
+  const copyCode = useCallback(() => {
+    navigator.clipboard?.writeText(joinedRoom).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
       },
-      onSnap: (snap) => {
-        engineRef.current?.applySnap(snap);
-        setPlayerCount(snap.players.length);
-      },
-    });
-    netRef.current = net;
-    net.connect({ name: pilot.username, country: pilot.country.code, room: code });
-  }, [room, pilot]);
+      () => {}
+    );
+  }, [joinedRoom]);
 
   const leaveCoop = useCallback(() => {
     clearTimeout(joinTimer.current);
@@ -215,9 +252,21 @@ export default function App() {
       {coopPhase === "joined" && (
         <Overlay>
           <div className="join-splash">
-            <p className="join-line">YOU JOINED</p>
+            <p className="join-line">{hostMode ? "ROOM CREATED" : "YOU JOINED"}</p>
             <h2 className="join-room-name">ROOM {joinedRoom}</h2>
-            <p className="join-ready">GET READY…</p>
+            {hostMode ? (
+              <>
+                <p className="join-share">Share this code with your friends</p>
+                <button className="btn btn-ghost copy-btn" onClick={copyCode}>
+                  {copied ? "COPIED!" : "COPY CODE"}
+                </button>
+                <button className="btn btn-primary" onClick={enterArena}>
+                  ENTER ARENA
+                </button>
+              </>
+            ) : (
+              <p className="join-ready">GET READY…</p>
+            )}
           </div>
         </Overlay>
       )}
@@ -258,6 +307,18 @@ export default function App() {
 
           <div className="coop-box">
             <span className="coop-title">CO-OP — PLAY WITH FRIENDS</span>
+
+            {/* Host: generate a fresh shareable code */}
+            <button className="btn btn-coop coop-create" onClick={createRoom}>
+              CREATE ROOM
+            </button>
+            <span className="coop-hint">Generates a code — share it with friends.</span>
+
+            <div className="coop-divider">
+              <span>OR JOIN A CODE</span>
+            </div>
+
+            {/* Friend: enter an existing code */}
             <div className="coop-row">
               <input
                 className="reg-input coop-input"
@@ -267,11 +328,10 @@ export default function App() {
                 onChange={(e) => setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
                 aria-label="Room code"
               />
-              <button className="btn btn-coop" onClick={joinCoop}>
+              <button className="btn btn-coop" onClick={() => joinCoop()} disabled={!room.trim()}>
                 JOIN
               </button>
             </div>
-            <span className="coop-hint">Share the same code with friends to play together.</span>
           </div>
 
           <button className="btn-link" onClick={editPilot}>
