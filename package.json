@@ -1,7 +1,7 @@
 {
   "name": "void-raider",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "VOID RAIDER — a 2D arcade space shooter with online co-op.",
   "author": "ColdRya",
   "type": "module",
@@ -21,6 +21,7 @@
     "dist:all": "npm run build && electron-builder --mac --win"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "ws": "^8.21.0"
@@ -42,6 +43,13 @@
   "build": {
     "appId": "com.coldrya.voidraider",
     "productName": "Void Raider",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jibrealC123",
+        "repo": "coldrya"
+      }
+    ],
     "files": [
       "electron/**/*",
       "server/**/*",

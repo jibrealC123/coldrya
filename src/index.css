@@ -745,6 +745,54 @@ kbd {
   animation: pulse 0.9s ease-in-out infinite;
 }
 
+/* ── Auto-update ──────────────────────────────────────────────────── */
+.update-overlay {
+  z-index: 60;
+}
+
+.progress-track {
+  width: 320px;
+  max-width: 80vw;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid var(--c-border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--c-blue), var(--c-blue-glow));
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.6);
+  transition: width 0.2s ease;
+}
+
+.update-pct {
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  color: var(--c-blue-glow);
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+}
+
+.update-note {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.update-toast {
+  position: absolute;
+  bottom: 22px;
+  left: 22px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid var(--c-border);
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .title-sm.gameover,
   .new-best,
@@ -761,5 +809,8 @@ kbd {
   }
   .btn-primary:hover {
     transform: none;
+  }
+  .progress-fill {
+    transition: none;
   }
 }

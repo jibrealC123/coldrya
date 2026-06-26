@@ -45,8 +45,15 @@ export default function App() {
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
   const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive}
+  const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
+
+  // desktop auto-update events (only present in the Electron app)
+  useEffect(() => {
+    if (!window.voidUpdater) return;
+    return window.voidUpdater.onStatus((data) => setUpdate(data));
+  }, []);
 
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -201,6 +208,10 @@ export default function App() {
   return (
     <div className="game-root">
       <canvas ref={canvasRef} className="game-canvas" />
+
+      {/* Desktop auto-update */}
+      <UpdateOverlay update={update} onDismiss={() => setUpdate(null)} />
+
 
       {/* HUD */}
       {(playing || status === "paused") && (
@@ -512,6 +523,66 @@ function Registration({ initial, onComplete }) {
       </form>
     </div>
   );
+}
+
+function UpdateOverlay({ update, onDismiss }) {
+  if (!update) return null;
+  const { phase, percent = 0, version } = update;
+
+  // only surface the meaningful phases
+  if (phase === "available" || phase === "downloading") {
+    return (
+      <div className="overlay update-overlay">
+        <div className="overlay-panel">
+          <h2 className="title-sm">UPDATING</h2>
+          <p className="subtitle">
+            {version ? `New version ${version}` : "Downloading the latest version"}
+          </p>
+          <div className="progress-track" role="progressbar" aria-valuenow={percent}>
+            <div className="progress-fill" style={{ width: `${phase === "downloading" ? percent : 6}%` }} />
+          </div>
+          <p className="update-pct">
+            {phase === "downloading" ? `${percent}%` : "Starting…"}
+          </p>
+          <p className="update-note">Please wait — the game will be ready in a moment.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "ready") {
+    return (
+      <div className="overlay update-overlay">
+        <div className="overlay-panel">
+          <h2 className="title-sm">UPDATE READY</h2>
+          <p className="subtitle">{version ? `Version ${version} installed` : "Update downloaded"}</p>
+          <button className="btn btn-primary" onClick={() => window.voidUpdater?.restart()}>
+            RESTART &amp; PLAY
+          </button>
+          <button className="btn-link" onClick={onDismiss}>
+            later
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "error") {
+    // unsigned macOS builds can't auto-install — offer a manual download
+    return (
+      <div className="update-toast">
+        <span>Update available</span>
+        <button className="btn-link" onClick={() => window.voidUpdater?.openReleases()}>
+          download
+        </button>
+        <button className="btn-link" onClick={onDismiss}>
+          dismiss
+        </button>
+      </div>
+    );
+  }
+
+  return null; // checking / none → silent
 }
 
 function Overlay({ children }) {
