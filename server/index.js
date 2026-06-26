@@ -155,18 +155,18 @@ function resetRoom(room) {
 /* ── sim ─────────────────────────────────────────────────────────────── */
 function spawnEnemy(room) {
   const tier = Math.floor((room.wave - 1) / 3);
-  const tough = Math.random() < clamp(0.12 + room.wave * 0.03, 0, 0.5);
+  const tough = Math.random() < clamp(0.16 + room.wave * 0.03, 0, 0.55);
   room.enemies.push({
     id: room.enemyId++,
     x: rand(40, WORLD.w - 40),
     y: -30,
     r: tough ? 20 : 14,
-    vy: rand(50, 90) + room.wave * 5,
-    sway: rand(20, 70),
+    vy: rand(90, 150) + room.wave * 8,
+    sway: rand(30, 95),
     phase: rand(0, Math.PI * 2),
     hp: tough ? 3 : 1,
     maxHp: tough ? 3 : 1,
-    canShoot: Math.random() < clamp(0.25 + tier * 0.15, 0, 0.9),
+    canShoot: Math.random() < clamp(0.45 + tier * 0.15, 0, 0.95),
     fireCd: rand(0.8, 2.5),
     score: tough ? 50 : 20,
   });
@@ -196,20 +196,20 @@ function tick(room, dt) {
   const tier = Math.floor((room.wave - 1) / 3);
 
   if (!room.over) {
-    // spawning — denser each tier, with burst spawns
+    // spawning — dense from wave 1, denser each tier, with burst spawns
     room.spawnTimer -= dt;
-    const interval = clamp(1.4 - tier * 0.22, 0.3, 1.4);
+    const interval = clamp(0.8 - tier * 0.16, 0.28, 0.8);
     if (room.spawnTimer <= 0 && aliveCount > 0) {
       room.spawnTimer = interval;
       spawnEnemy(room);
-      for (let i = 0; i < Math.min(tier, 3); i++) {
+      for (let i = 0; i < 2 + tier; i++) {
         if (Math.random() < 0.5) spawnEnemy(room);
       }
       // more players → more pressure
       if (room.players.size > 1 && Math.random() < 0.4) spawnEnemy(room);
     }
     room.waveTimer += dt;
-    if (room.waveTimer > 18) {
+    if (room.waveTimer > 13) {
       room.waveTimer = 0;
       room.wave += 1;
     }
@@ -224,9 +224,9 @@ function tick(room, dt) {
     p.shield = Math.max(0, p.shield - dt);
     if (!p.alive || room.over) continue;
     if (p.firing && p.cooldown <= 0) {
-      const rate = p.rapid > 0 ? 0.18 * 0.45 : 0.18;
+      const rate = p.rapid > 0 ? 0.12 * 0.45 : 0.12;
       p.cooldown = rate;
-      const sp = 620;
+      const sp = 760;
       if (p.triple > 0) {
         room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp });
         room.pbullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -sp });
@@ -251,9 +251,9 @@ function tick(room, dt) {
 
   // enemy fire steps up each tier: faster bullets, shorter cooldown, one
   // extra bullet per shot (spread burst)
-  const bulletSpeed = Math.min(220 + tier * 60, 560);
+  const bulletSpeed = Math.min(340 + tier * 60, 640);
   const shots = Math.min(1 + tier, 5);
-  const fireBase = clamp(2.4 - tier * 0.35, 0.5, 2.4);
+  const fireBase = clamp(1.35 - tier * 0.25, 0.4, 1.35);
 
   // enemies
   for (const e of room.enemies) {

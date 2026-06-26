@@ -195,9 +195,9 @@ export class Engine {
       x: this.W / 2,
       y: this.H - 90,
       r: 16,
-      speed: 360,
+      speed: 480,
       cooldown: 0,
-      fireRate: 0.18,
+      fireRate: 0.12,
       invuln: 0,
       triple: 0,
       rapid: 0,
@@ -238,7 +238,7 @@ export class Engine {
     this.freeze = 0;
     this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
-    this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 360 };
+    this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480 };
     this.status = "playing";
     this._computeView();
     this._emit();
@@ -492,7 +492,7 @@ export class Engine {
     const rate = p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate;
     if (firing && p.cooldown <= 0) {
       p.cooldown = rate;
-      const speed = 620;
+      const speed = 760;
       if (p.triple > 0) {
         this.bullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -speed, r: 4 });
         this.bullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -speed, r: 4 });
@@ -517,18 +517,18 @@ export class Engine {
     // difficulty steps up every 3 waves (a "tier")
     const tier = Math.floor((this.wave - 1) / 3);
 
-    // wave / spawning — denser each tier, with burst spawns
+    // wave / spawning — dense from wave 1, denser each tier, burst spawns
     this.spawnTimer -= dt;
-    const spawnInterval = clamp(1.4 - tier * 0.22, 0.3, 1.4);
+    const spawnInterval = clamp(0.8 - tier * 0.16, 0.28, 0.8);
     if (this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
       this._spawnEnemy();
-      for (let i = 0; i < Math.min(tier, 3); i++) {
+      for (let i = 0; i < 2 + tier; i++) {
         if (Math.random() < 0.5) this._spawnEnemy();
       }
     }
     this.waveTimer += dt;
-    if (this.waveTimer > 18) {
+    if (this.waveTimer > 13) {
       this.waveTimer = 0;
       this.wave += 1;
       this._emit();
@@ -536,9 +536,9 @@ export class Engine {
 
     // enemy fire steps up each tier: faster bullets, shorter cooldown, one
     // extra bullet per shot (spread burst)
-    const bulletSpeed = Math.min(220 + tier * 60, 560);
+    const bulletSpeed = Math.min(340 + tier * 60, 640);
     const shots = Math.min(1 + tier, 5);
-    const fireBase = clamp(2.4 - tier * 0.35, 0.5, 2.4);
+    const fireBase = clamp(1.35 - tier * 0.25, 0.4, 1.35);
 
     // enemies
     for (const e of this.enemies) {
@@ -593,17 +593,17 @@ export class Engine {
 
   _spawnEnemy() {
     const tier = Math.floor((this.wave - 1) / 3);
-    const tough = Math.random() < clamp(0.12 + this.wave * 0.03, 0, 0.5);
+    const tough = Math.random() < clamp(0.16 + this.wave * 0.03, 0, 0.55);
     this.enemies.push({
       x: rand(30, this.W - 30),
       y: -30,
       r: tough ? 20 : 14,
-      vy: rand(50, 90) + this.wave * 5,
-      sway: rand(20, 70),
+      vy: rand(90, 150) + this.wave * 8,
+      sway: rand(30, 95),
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
       maxHp: tough ? 3 : 1,
-      canShoot: Math.random() < clamp(0.25 + tier * 0.15, 0, 0.9),
+      canShoot: Math.random() < clamp(0.45 + tier * 0.15, 0, 0.95),
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
     });
