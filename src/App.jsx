@@ -15,6 +15,22 @@ function genRoomCode(len = 4) {
   return s;
 }
 
+// Mk-I Interceptor silhouette — used for the SHIPS life pips so the HUD
+// matches the in-game ship.
+function ShipPip() {
+  return (
+    <svg className="life-pip" viewBox="0 0 24 26" aria-hidden="true">
+      <polygon
+        points="12,0 13,8 22,17 22,19 14,21 14,25 10,25 10,21 2,19 2,17 11,8"
+        fill="var(--c-blue)"
+      />
+      <rect x="10" y="3" width="4" height="7" rx="1.5" fill="#20d8ff" />
+      <rect x="2" y="17" width="1.6" height="1.6" fill="#ff2020" />
+      <rect x="20.4" y="17" width="1.6" height="1.6" fill="#20ff66" />
+    </svg>
+  );
+}
+
 function loadPilot() {
   try {
     const raw = localStorage.getItem(PILOT_KEY);
@@ -265,7 +281,7 @@ export default function App() {
             <span className="hud-label">SHIPS</span>
             <span className="hud-lives">
               {Array.from({ length: Math.max(0, lives) }).map((_, i) => (
-                <span key={i} className="life-pip" />
+                <ShipPip key={i} />
               ))}
             </span>
           </div>

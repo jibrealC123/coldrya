@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════
-   VOID RAIDER — 2D arcade space shooter engine
+   ColdRya — 2D arcade space shooter engine
    Plain-JS canvas engine. React owns the menu/HUD; this owns the play.
    Palette: neon blue player, red enemies, green pickups, dark space bg.
 ═══════════════════════════════════════════════════════════════════════ */
@@ -21,6 +21,137 @@ const COLORS = {
   enemyBullet: "#fb923c",
   power: "#22C55E",
 };
+
+/* ── Mk-I Interceptor — pixel-art player ship ──────────────────────────
+   24×25 pixel sprite, nose up. Left half is authored (cols 0–11) and
+   mirrored to the right (mx = 23 - x). Baked once to an offscreen canvas
+   then drawn scaled with smoothing off for crisp pixels. The engine flame
+   is rendered procedurally each frame so it flickers. */
+const SHIP_PALETTE = {
+  B: "#0e1e34", K: "#0c1826", D: "#0e2040", d: "#183560", n: "#204882",
+  m: "#2a5ca8", L: "#3878d0", l: "#5090e8", H: "#6ab0ff", h: "#90d0ff",
+  c: "#005888", C: "#0090e0", S: "#20d8ff", W: "#c0f4ff",
+  E: "#ff3000", O: "#ff9000", G: "#ffe020", w: "#fff8a0",
+  F: "#08121e", g: "#142235", f: "#1c3858",
+  A: "#1e2028", a: "#2c2e3c", e: "#4a4e62",
+};
+// Left-half pixels [col, colorKey] per row (y = row index, 0 = nose).
+const SHIP_BODY = [
+  [[10, "B"], [11, "D"]],
+  [[9, "B"], [10, "n"], [11, "n"]],
+  [[9, "B"], [10, "c"], [11, "S"]],
+  [[8, "B"], [9, "c"], [10, "S"], [11, "W"]],
+  [[8, "B"], [9, "n"], [10, "S"], [11, "S"]],
+  [[8, "B"], [9, "n"], [10, "C"], [11, "C"]],
+  [[8, "B"], [9, "d"], [10, "C"], [11, "c"]],
+  [[7, "B"], [8, "D"], [9, "d"], [10, "m"], [11, "n"]],
+  [[7, "B"], [8, "D"], [9, "d"], [10, "n"], [11, "m"]],
+  [[7, "e"], [8, "D"], [9, "d"], [10, "n"], [11, "m"]],
+  [[5, "e"], [6, "A"], [7, "a"], [8, "B"], [9, "d"], [10, "m"], [11, "L"]],
+  [[4, "e"], [5, "A"], [6, "A"], [7, "a"], [8, "B"], [9, "m"], [10, "L"], [11, "l"]],
+  [[3, "e"], [4, "A"], [5, "A"], [6, "A"], [7, "a"], [8, "B"], [9, "l"], [10, "H"], [11, "H"]],
+  [[2, "e"], [3, "A"], [4, "A"], [5, "A"], [6, "a"], [7, "a"], [8, "B"], [9, "g"], [10, "F"], [11, "F"]],
+  [[2, "e"], [3, "A"], [4, "A"], [5, "A"], [6, "a"], [7, "a"], [8, "B"], [9, "g"], [10, "F"], [11, "F"]],
+  [[2, "e"], [3, "A"], [4, "A"], [5, "A"], [6, "a"], [7, "a"], [8, "B"], [9, "g"], [10, "F"], [11, "F"]],
+  [[2, "e"], [3, "A"], [4, "A"], [5, "A"], [6, "a"], [7, "a"], [8, "B"], [9, "g"], [10, "F"], [11, "F"]],
+  [[2, "e"], [3, "A"], [4, "A"], [5, "A"], [6, "a"], [7, "a"], [8, "B"], [9, "g"], [10, "F"], [11, "F"]],
+  [[3, "e"], [4, "A"], [5, "A"], [6, "A"], [7, "a"], [8, "B"], [9, "l"], [10, "H"], [11, "h"]],
+  [[4, "e"], [5, "A"], [6, "A"], [7, "a"], [8, "B"], [9, "m"], [10, "L"], [11, "l"]],
+  [[5, "e"], [6, "A"], [7, "a"], [8, "B"], [9, "n"], [10, "m"], [11, "L"]],
+  [[8, "B"], [9, "D"], [10, "d"], [11, "n"]],
+  [[10, "E"], [11, "E"]],
+  [[10, "E"], [11, "O"]],
+  [[11, "O"]],
+];
+// Wing-tip nav lights (red port / green starboard), sit on row 16.
+const SHIP_NAV = [
+  { x: 2, y: 16, c: "#ff2020" },
+  { x: 21, y: 16, c: "#20ff66" },
+];
+const SHIP_W = 24;
+const SHIP_H = SHIP_BODY.length; // 25
+const ENGINE_ROW = SHIP_BODY.length - 2; // y of nozzle exit (flame origin)
+
+// Bake a left-half-authored, mirrored pixel sprite to an offscreen canvas.
+function bakePixels(palette, rows, width, extras) {
+  const cv = document.createElement("canvas");
+  cv.width = width;
+  cv.height = rows.length;
+  const c = cv.getContext("2d");
+  rows.forEach((row, y) => {
+    for (const [x, k] of row) {
+      const col = palette[k];
+      if (!col) continue;
+      c.fillStyle = col;
+      c.fillRect(x, y, 1, 1);
+      const mx = width - 1 - x;
+      if (mx !== x) c.fillRect(mx, y, 1, 1);
+    }
+  });
+  if (extras) for (const e of extras) { c.fillStyle = e.c; c.fillRect(e.x, e.y, 1, 1); }
+  return cv;
+}
+
+function buildShipSprite(tintFilter) {
+  const cv = bakePixels(SHIP_PALETTE, SHIP_BODY, SHIP_W, SHIP_NAV);
+  if (!tintFilter) return cv;
+  // Remote allies: recolor blue → green via hue-rotate on a copy.
+  const out = document.createElement("canvas");
+  out.width = cv.width;
+  out.height = cv.height;
+  const oc = out.getContext("2d");
+  oc.filter = tintFilter;
+  oc.drawImage(cv, 0, 0);
+  return out;
+}
+
+/* ── Enemy raiders — pixel-art, same hand as the player ship but nose
+   DOWN (toward the player) and in the red hostile palette. Two classes:
+   a fast "Stinger" drone (1 HP) and an armored "Hex Cruiser" (3 HP). */
+const ENEMY_PALETTE = {
+  R: "#DC2626", r: "#991b1b", o: "#f87171", e: "#7a2a2a",
+  H: "#3a0a0a", h: "#5a1515", K: "#1a0606",
+  C: "#fb923c", Y: "#fde047",
+};
+// Stinger drone — 16 wide, nose at bottom.
+const ENEMY_BASIC = [
+  [[6, "r"], [7, "R"]],
+  [[6, "R"], [7, "o"]],
+  [[3, "e"], [5, "r"], [6, "R"], [7, "R"]],
+  [[2, "e"], [3, "r"], [4, "r"], [5, "R"], [6, "R"], [7, "o"]],
+  [[1, "e"], [2, "r"], [3, "R"], [4, "R"], [5, "R"], [6, "C"], [7, "C"]],
+  [[0, "e"], [1, "r"], [2, "R"], [3, "R"], [4, "R"], [5, "R"], [6, "Y"], [7, "Y"]],
+  [[1, "e"], [2, "r"], [3, "R"], [4, "R"], [5, "R"], [6, "C"], [7, "C"]],
+  [[3, "r"], [4, "R"], [5, "R"], [6, "R"], [7, "R"]],
+  [[5, "r"], [6, "R"], [7, "R"]],
+  [[6, "r"], [7, "R"]],
+  [[6, "r"], [7, "R"]],
+  [[7, "R"]],
+  [[7, "r"]],
+];
+const ENEMY_BASIC_W = 16;
+// Hex Cruiser — 20 wide, armored diamond with a glowing core.
+const ENEMY_TOUGH = [
+  [[8, "r"], [9, "R"]],
+  [[7, "r"], [8, "R"], [9, "R"]],
+  [[6, "e"], [7, "r"], [8, "R"], [9, "o"]],
+  [[5, "e"], [6, "r"], [7, "R"], [8, "R"], [9, "R"]],
+  [[4, "e"], [5, "r"], [6, "R"], [7, "R"], [8, "R"], [9, "R"]],
+  [[3, "e"], [4, "r"], [5, "R"], [6, "R"], [7, "H"], [8, "H"], [9, "R"]],
+  [[2, "e"], [3, "r"], [4, "R"], [5, "R"], [6, "H"], [7, "C"], [8, "C"], [9, "R"]],
+  [[1, "e"], [2, "r"], [3, "R"], [4, "R"], [5, "H"], [6, "C"], [7, "Y"], [8, "Y"], [9, "o"]],
+  [[0, "e"], [1, "r"], [2, "R"], [3, "R"], [4, "H"], [5, "C"], [6, "Y"], [7, "Y"], [8, "C"], [9, "R"]],
+  [[1, "e"], [2, "r"], [3, "R"], [4, "R"], [5, "H"], [6, "C"], [7, "Y"], [8, "Y"], [9, "o"]],
+  [[2, "e"], [3, "r"], [4, "R"], [5, "R"], [6, "H"], [7, "C"], [8, "C"], [9, "R"]],
+  [[3, "e"], [4, "r"], [5, "R"], [6, "R"], [7, "H"], [8, "H"], [9, "R"]],
+  [[4, "e"], [5, "r"], [6, "R"], [7, "R"], [8, "R"], [9, "R"]],
+  [[5, "e"], [6, "r"], [7, "R"], [8, "R"], [9, "R"]],
+  [[6, "e"], [7, "r"], [8, "R"], [9, "o"]],
+  [[7, "r"], [8, "R"], [9, "R"]],
+  [[8, "r"], [9, "R"]],
+  [[9, "R"]],
+];
+const ENEMY_TOUGH_W = 20;
 
 export class Engine {
   constructor(canvas, { onState }) {
@@ -708,65 +839,94 @@ export class Engine {
       ctx.globalAlpha = 1;
     }
 
-    ctx.shadowBlur = 16;
-    ctx.shadowColor = COLORS.playerGlow;
-    ctx.fillStyle = COLORS.player;
-    ctx.beginPath();
-    ctx.moveTo(0, -p.r);
-    ctx.lineTo(p.r * 0.85, p.r * 0.9);
-    ctx.lineTo(0, p.r * 0.45);
-    ctx.lineTo(-p.r * 0.85, p.r * 0.9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = COLORS.playerGlow;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // engine flame
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = COLORS.enemyBullet;
-    ctx.fillStyle = COLORS.enemyBullet;
-    const flame = p.r * (0.5 + Math.random() * 0.5);
-    ctx.beginPath();
-    ctx.moveTo(-4, p.r * 0.7);
-    ctx.lineTo(0, p.r * 0.7 + flame);
-    ctx.lineTo(4, p.r * 0.7);
-    ctx.closePath();
-    ctx.fill();
+    this._drawShip(false);
     ctx.restore();
     ctx.shadowBlur = 0;
   }
 
+  /* Lazily-built, cached ship sprites (blue = you, green = allies). */
+  _ship(remote) {
+    if (remote) {
+      if (!this._shipR) this._shipR = buildShipSprite("hue-rotate(105deg) saturate(1.15)");
+      return this._shipR;
+    }
+    if (!this._shipB) this._shipB = buildShipSprite(null);
+    return this._shipB;
+  }
+
+  // Draws the Mk-I Interceptor centered at the current origin (nose up),
+  // plus a flickering engine flame. scale = native-px → world-px.
+  _drawShip(remote, scale = 1.5) {
+    const ctx = this.ctx;
+    const sprite = this._ship(remote);
+    const w = SHIP_W * scale;
+    const h = SHIP_H * scale;
+    const ox = -w / 2;
+    const oy = -h / 2;
+
+    // engine flame — procedural flicker trailing the nozzle
+    const flameX = ox + 12 * scale; // centered on the 2px nozzle (cols 11/12)
+    const flameY = oy + ENGINE_ROW * scale;
+    const len = (4 + Math.random() * 4) * scale;
+    const grad = ctx.createLinearGradient(0, flameY, 0, flameY + len);
+    grad.addColorStop(0, "#ff9000");
+    grad.addColorStop(0.4, "#ffe020");
+    grad.addColorStop(1, "rgba(255,248,160,0)");
+    ctx.save();
+    ctx.globalAlpha = 0.7 + Math.random() * 0.3;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#ff9000";
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(flameX - scale, flameY);
+    ctx.lineTo(flameX, flameY + len);
+    ctx.lineTo(flameX + scale, flameY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // ship body (crisp pixels)
+    const smooth = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = remote ? "#4ade80" : COLORS.playerGlow;
+    ctx.drawImage(sprite, ox, oy, w, h);
+    ctx.shadowBlur = 0;
+    ctx.imageSmoothingEnabled = smooth;
+  }
+
+  /* Cached enemy sprites (built lazily on first draw). */
+  _enemySprite(tough) {
+    if (tough) {
+      if (!this._enemyT) this._enemyT = bakePixels(ENEMY_PALETTE, ENEMY_TOUGH, ENEMY_TOUGH_W);
+      return this._enemyT;
+    }
+    if (!this._enemyB) this._enemyB = bakePixels(ENEMY_PALETTE, ENEMY_BASIC, ENEMY_BASIC_W);
+    return this._enemyB;
+  }
+
   _drawEnemy(e) {
     const ctx = this.ctx;
+    const tough = e.maxHp >= 3;
+    const sprite = this._enemySprite(tough);
+    // sprite scaled so its width ≈ the hitbox diameter
+    const scale = (e.r * 2) / sprite.width;
+    const w = sprite.width * scale;
+    const h = sprite.height * scale;
     ctx.save();
     ctx.translate(e.x, e.y);
+
+    const smooth = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
     ctx.shadowBlur = 14;
     ctx.shadowColor = COLORS.enemyGlow;
-    ctx.fillStyle = e.hp < e.maxHp ? COLORS.enemyGlow : COLORS.enemy;
-    if (e.maxHp >= 3) {
-      // tough = hexed body
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i + Math.PI / 6;
-        const px = Math.cos(a) * e.r;
-        const py = Math.sin(a) * e.r;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // basic = inverted triangle
-      ctx.beginPath();
-      ctx.moveTo(0, e.r);
-      ctx.lineTo(e.r * 0.9, -e.r * 0.8);
-      ctx.lineTo(-e.r * 0.9, -e.r * 0.8);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
+    // hit flash: tint white briefly while damaged
+    if (e.hp < e.maxHp) ctx.globalAlpha = 0.85 + 0.15 * Math.sin(performance.now() / 60);
+    ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+    ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
+    ctx.imageSmoothingEnabled = smooth;
+    ctx.restore();
   }
 
   /* ── multiplayer update / render ───────────────────────────────── */
@@ -991,8 +1151,6 @@ export class Engine {
 
   _drawNetShip(x, y, name, country, { remote, shield, invuln }) {
     const ctx = this.ctx;
-    const body = remote ? "#16a34a" : COLORS.player;
-    const glow = remote ? "#4ade80" : COLORS.playerGlow;
     ctx.save();
     ctx.translate(x, y);
 
@@ -1008,20 +1166,7 @@ export class Engine {
       ctx.stroke();
     }
 
-    ctx.shadowBlur = 16;
-    ctx.shadowColor = glow;
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.moveTo(0, -16);
-    ctx.lineTo(13.6, 14.4);
-    ctx.lineTo(0, 7.2);
-    ctx.lineTo(-13.6, 14.4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = glow;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    this._drawShip(!!remote);
     ctx.globalAlpha = 1;
 
     // flag + name tag above ship (placeholder until ship art arrives)

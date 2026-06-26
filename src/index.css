@@ -111,10 +111,8 @@ body {
 
 .life-pip {
   width: 14px;
-  height: 14px;
-  background: var(--c-blue);
-  box-shadow: 0 0 8px var(--c-blue-glow);
-  clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%);
+  height: 15px;
+  filter: drop-shadow(0 0 5px var(--c-blue-glow));
 }
 
 /* ── Pause button ─────────────────────────────────────────────────── */
