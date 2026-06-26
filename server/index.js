@@ -525,7 +525,8 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
       } else if (msg.t === "start" && ws.room && ws.player) {
         // only the host can launch the round
         if (ws.room.hostId === ws.player.id && !ws.room.started) startRoom(ws.room);
-      } else if (msg.t === "restart" && ws.room) {
+      } else if (msg.t === "restart" && ws.room && ws.room.over) {
+        // only after the round actually ended — stops mid-game reset griefing
         resetRoom(ws.room);
       }
     });
