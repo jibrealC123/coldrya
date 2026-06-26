@@ -23,8 +23,8 @@ const WORLD = { w: 1000, h: 720 };
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const d2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
-// XP needed for the next level — moderate curve (kept in sync with the client)
-const xpForLevel = (level) => 12 + (level - 1) * 8;
+// XP needed for the next level — mid-slow curve (kept in sync with the client)
+const xpForLevel = (level) => 30 + (level - 1) * 20;
 function addXp(p, n) {
   p.xp += n;
   while (p.xp >= p.xpNext) {
@@ -187,7 +187,7 @@ function spawnEnemy(room) {
     phase: rand(0, Math.PI * 2),
     hp: tough ? 3 : 1,
     maxHp: tough ? 3 : 1,
-    canShoot: Math.random() < clamp(0.45 + tier * 0.15, 0, 0.95),
+    canShoot: Math.random() < clamp(0.3 + tier * 0.15, 0, 0.9),
     fireCd: rand(0.8, 2.5),
     score: tough ? 50 : 20,
   });
@@ -226,7 +226,7 @@ function tick(room, dt) {
     if (room.spawnTimer <= 0 && aliveCount > 0) {
       room.spawnTimer = interval;
       spawnEnemy(room);
-      for (let i = 0; i < 2 + tier; i++) {
+      for (let i = 0; i < 1 + tier; i++) {
         if (Math.random() < 0.5) spawnEnemy(room);
       }
       // more players → more pressure
@@ -278,7 +278,7 @@ function tick(room, dt) {
   // extra bullet per shot (spread burst)
   const bulletSpeed = Math.min(340 + tier * 60, 640);
   const shots = Math.min(1 + tier, 5);
-  const fireBase = clamp(1.35 - tier * 0.25, 0.4, 1.35);
+  const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7);
 
   // enemies
   for (const e of room.enemies) {

@@ -6,8 +6,8 @@
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-// XP needed to reach the next level — moderate curve (kept in sync with server)
-const xpForLevel = (level) => 12 + (level - 1) * 8;
+// XP needed to reach the next level — mid-slow curve (kept in sync with server)
+const xpForLevel = (level) => 30 + (level - 1) * 20;
 const dist2 = (ax, ay, bx, by) => {
   const dx = ax - bx;
   const dy = ay - by;
@@ -558,7 +558,7 @@ export class Engine {
     if (this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
       this._spawnEnemy();
-      for (let i = 0; i < 2 + tier; i++) {
+      for (let i = 0; i < 1 + tier; i++) {
         if (Math.random() < 0.5) this._spawnEnemy();
       }
     }
@@ -573,7 +573,7 @@ export class Engine {
     // extra bullet per shot (spread burst)
     const bulletSpeed = Math.min(340 + tier * 60, 640);
     const shots = Math.min(1 + tier, 5);
-    const fireBase = clamp(1.35 - tier * 0.25, 0.4, 1.35);
+    const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7);
 
     // enemies
     for (const e of this.enemies) {
@@ -638,7 +638,7 @@ export class Engine {
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
       maxHp: tough ? 3 : 1,
-      canShoot: Math.random() < clamp(0.45 + tier * 0.15, 0, 0.95),
+      canShoot: Math.random() < clamp(0.3 + tier * 0.15, 0, 0.9),
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
     });

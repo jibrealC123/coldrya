@@ -95,7 +95,9 @@ export default function App() {
   const [wave, setWave] = useState(1);
   const [level, setLevel] = useState(1);
   const [xp, setXp] = useState(0);
-  const [xpNext, setXpNext] = useState(12);
+  const [xpNext, setXpNext] = useState(30);
+  const [levelUp, setLevelUp] = useState(null); // {n, key} → triggers the banner
+  const prevLevelRef = useRef(1);
   const [high, setHigh] = useState(() => Number(localStorage.getItem(HIGH_KEY) || 0));
 
   // build engine once
@@ -126,6 +128,14 @@ export default function App() {
       localStorage.setItem(HIGH_KEY, String(score));
     }
   }, [status, score, high, mode]);
+
+  // "LEVEL n!" banner whenever the level goes up (ignores the reset to 1)
+  useEffect(() => {
+    if (level > prevLevelRef.current) {
+      setLevelUp({ n: level, key: Date.now() });
+    }
+    prevLevelRef.current = level;
+  }, [level]);
 
   const startSolo = useCallback(() => {
     setMode("solo");
@@ -329,6 +339,18 @@ export default function App() {
               ))}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Level-up banner */}
+      {levelUp && playing && (
+        <div
+          key={levelUp.key}
+          className="level-up-banner"
+          onAnimationEnd={() => setLevelUp(null)}
+          aria-hidden="true"
+        >
+          LEVEL {levelUp.n}!
         </div>
       )}
 
