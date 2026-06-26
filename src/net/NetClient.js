@@ -81,6 +81,15 @@ export class NetClient {
         this.onWelcome(msg);
       } else if (msg.t === "snap") {
         this.onSnap(msg);
+      } else if (msg.t === "denied") {
+        // server rejected the join (room full / at capacity) — don't retry
+        this.closedByUser = true;
+        this.onStatus("denied", msg.reason || "Unable to join.");
+        try {
+          this.ws.close();
+        } catch {
+          /* ignore */
+        }
       }
     };
 

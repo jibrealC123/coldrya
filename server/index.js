@@ -24,6 +24,26 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const d2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
 
+// abuse / DoS limits
+const MAX_PAYLOAD = 4096; // bytes per WS message (game messages are tiny)
+const MAX_CONNECTIONS = 400; // total concurrent sockets
+const MAX_ROOMS = 300; // total concurrent rooms
+const MAX_PLAYERS_PER_ROOM = 12;
+const MAX_MSG_PER_SEC = 150; // per-connection message rate cap
+
+// sanitize untrusted client strings (defense-in-depth; clients are untrusted)
+const cleanName = (v) => {
+  const s = String(v ?? 'PILOT');
+  let out = '';
+  for (const ch of s) {
+    const c = ch.charCodeAt(0);
+    if (c >= 32 && c !== 127) out += ch; // drop control characters
+  }
+  return out.slice(0, 16).trim() || 'PILOT';
+};
+const cleanCountry = (v) =>
+  (String(v ?? 'us').toLowerCase().match(/[a-z]/g) || ['u', 's']).join('').slice(0, 2) || 'us';
+
 /* ── static file server (prod) ───────────────────────────────────────── */
 const MIME = {
   ".html": "text/html",
@@ -37,11 +57,28 @@ const MIME = {
 };
 
 function createRequestHandler(DIST) {
+  // CSP locks the app down to its own assets + the few known third parties
+  // (Google Fonts, flag CDN, the game WebSocket). No inline/eval scripts.
+  const CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' https://flagcdn.com data:",
+    "connect-src 'self' ws: wss:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+
   return (req, res) => {
     if (req.url === "/healthz") {
       res.writeHead(200);
       return res.end("ok");
     }
+    res.setHeader("Content-Security-Policy", CSP);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
     let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
     if (urlPath === "/") urlPath = "/index.html";
     const filePath = path.join(DIST, urlPath);
@@ -353,65 +390,99 @@ let pid = 1;
 
 export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
   const server = http.createServer(createRequestHandler(distPath));
-  const wss = new WebSocketServer({ server });
+  // small payload cap + no compression (deflate is a needless DoS surface here)
+  const wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD, perMessageDeflate: false });
 
-  wss.on("connection", (ws) => {
-  ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
-
-  ws.player = null;
-  ws.room = null;
-
-  ws.on("message", (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-
-    if (msg.t === "join") {
-      const code = (msg.room || "lobby").toString().toUpperCase().slice(0, 8) || "LOBBY";
-      const room = getRoom(code);
-      const player = {
-        id: pid++,
-        name: (msg.name || "PILOT").toString().slice(0, 16),
-        country: (msg.country || "us").toString().slice(0, 3),
-        x: WORLD.w / 2 + rand(-80, 80),
-        y: WORLD.h - 90,
-        firing: false,
-        lives: 3,
-        alive: true,
-        invuln: 1.5,
-        cooldown: 0,
-        triple: 0,
-        rapid: 0,
-        shield: 0,
-        ws,
-      };
-      room.players.set(player.id, player);
-      ws.player = player;
-      ws.room = room;
-      ws.send(JSON.stringify({ t: "welcome", id: player.id, room: code, w: WORLD.w, h: WORLD.h }));
-    } else if (msg.t === "input" && ws.player) {
-      const p = ws.player;
-      if (typeof msg.x === "number") p.x = clamp(msg.x, 18, WORLD.w - 18);
-      if (typeof msg.y === "number") p.y = clamp(msg.y, 50, WORLD.h - 30);
-      p.firing = !!msg.firing;
-    } else if (msg.t === "restart" && ws.room) {
-      resetRoom(ws.room);
-    }
-  });
-
-  ws.on("close", () => {
+  // remove a socket's player from its room (and drop the room if now empty)
+  const leaveRoom = (ws) => {
     if (ws.room && ws.player) {
       ws.room.players.delete(ws.player.id);
       if (ws.room.players.size === 0) rooms.delete(ws.room.code);
     }
+    ws.player = null;
+    ws.room = null;
+  };
+
+  wss.on("connection", (ws) => {
+    // cap total concurrent connections
+    if (wss.clients.size > MAX_CONNECTIONS) {
+      ws.close(1013, "server busy");
+      return;
+    }
+    ws.isAlive = true;
+    ws.player = null;
+    ws.room = null;
+    ws.msgCount = 0;
+    ws.msgWindow = Date.now();
+    ws.on("pong", () => {
+      ws.isAlive = true;
+    });
+
+    ws.on("message", (raw) => {
+      // per-connection message rate limit
+      const now = Date.now();
+      if (now - ws.msgWindow >= 1000) {
+        ws.msgWindow = now;
+        ws.msgCount = 0;
+      }
+      if (++ws.msgCount > MAX_MSG_PER_SEC) return;
+
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg !== "object") return;
+
+      if (msg.t === "join") {
+        // one player per socket: drop any previous one (prevents join-spam leak)
+        leaveRoom(ws);
+        const code = String(msg.room || "lobby").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "LOBBY";
+        // refuse to create a brand-new room past the global cap
+        if (!rooms.has(code) && rooms.size >= MAX_ROOMS) {
+          ws.send(JSON.stringify({ t: "denied", reason: "Server is at capacity. Try again later." }));
+          return;
+        }
+        const room = getRoom(code);
+        if (room.players.size >= MAX_PLAYERS_PER_ROOM) {
+          if (room.players.size === 0) rooms.delete(code);
+          ws.send(JSON.stringify({ t: "denied", reason: "That room is full." }));
+          return;
+        }
+        const player = {
+          id: pid++,
+          name: cleanName(msg.name),
+          country: cleanCountry(msg.country),
+          x: WORLD.w / 2 + rand(-80, 80),
+          y: WORLD.h - 90,
+          firing: false,
+          lives: 3,
+          alive: true,
+          invuln: 1.5,
+          cooldown: 0,
+          triple: 0,
+          rapid: 0,
+          shield: 0,
+          ws,
+        };
+        room.players.set(player.id, player);
+        ws.player = player;
+        ws.room = room;
+        ws.send(JSON.stringify({ t: "welcome", id: player.id, room: code, w: WORLD.w, h: WORLD.h }));
+      } else if (msg.t === "input" && ws.player) {
+        const p = ws.player;
+        if (Number.isFinite(msg.x)) p.x = clamp(msg.x, 18, WORLD.w - 18);
+        if (Number.isFinite(msg.y)) p.y = clamp(msg.y, 50, WORLD.h - 30);
+        p.firing = !!msg.firing;
+      } else if (msg.t === "restart" && ws.room) {
+        resetRoom(ws.room);
+      }
+    });
+
+    ws.on("close", () => leaveRoom(ws));
+    ws.on("error", () => leaveRoom(ws));
   });
-});
 
   // heartbeat: drop dead sockets
   const heartbeat = setInterval(() => {

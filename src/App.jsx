@@ -42,6 +42,7 @@ export default function App() {
   const [joinedRoom, setJoinedRoom] = useState("");
   const [hostMode, setHostMode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
   const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive}
@@ -107,7 +108,13 @@ export default function App() {
       setNetStatus("connecting");
       const startedAt = Date.now();
       const net = new NetClient({
-        onStatus: (s) => setNetStatus(s),
+        onStatus: (s, reason) => {
+          setNetStatus(s);
+          if (s === "denied") {
+            clearTimeout(joinTimer.current);
+            setDenyReason(reason || "Unable to join this room.");
+          }
+        },
         onWelcome: (msg) => {
           const minWait = Math.max(0, 800 - (Date.now() - startedAt));
           clearTimeout(joinTimer.current);
@@ -169,6 +176,7 @@ export default function App() {
     setCoopPhase("idle");
     setMode("solo");
     setPlayers([]);
+    setDenyReason("");
     rosterKeyRef.current = "";
     engineRef.current?.leaveMultiplayer();
   }, []);
@@ -275,8 +283,19 @@ export default function App() {
         </button>
       )}
 
+      {/* CO-OP: join denied (room full / at capacity) */}
+      {coopPhase === "connecting" && netStatus === "denied" && (
+        <Overlay>
+          <h2 className="title-sm gameover">CAN'T JOIN</h2>
+          <p className="subtitle">{denyReason}</p>
+          <button className="btn btn-primary" onClick={leaveCoop}>
+            BACK
+          </button>
+        </Overlay>
+      )}
+
       {/* CO-OP: waiting to connect */}
-      {coopPhase === "connecting" && (
+      {coopPhase === "connecting" && netStatus !== "denied" && (
         <Overlay>
           <h2 className="title-sm wait-title">
             {netStatus === "reconnecting" ? "RECONNECTING" : "PLEASE WAIT"}

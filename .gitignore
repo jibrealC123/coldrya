@@ -25,3 +25,14 @@ dist-ssr
 
 # desktop build output
 release
+
+# secrets & signing material (never commit these)
+.env
+.env.*
+*.pem
+*.p12
+*.key
+*.keystore
+*.mobileprovision
+*.cer
+*.certSigningRequest

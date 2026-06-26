@@ -39,17 +39,27 @@ async function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
       preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
-  // external links (flags CDN, etc.) open in the system browser
+  const appOrigin = `http://localhost:${serverInfo.port}`;
+
+  // external links (flags CDN, etc.) open in the system browser — but only
+  // safe http/https schemes (never file:, etc.)
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
 
-  win.loadURL(`http://localhost:${serverInfo.port}`);
+  // block the renderer from navigating the window away from the app itself
+  win.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith(appOrigin)) e.preventDefault();
+  });
+
+  win.loadURL(appOrigin);
   win.on("closed", () => {
     win = null;
   });
