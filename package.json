@@ -2,7 +2,7 @@
   "name": "void-raider",
   "private": true,
   "version": "1.0.1",
-  "description": "VOID RAIDER — a 2D arcade space shooter with online co-op.",
+  "description": "ColdRya — a 2D arcade space shooter with online co-op.",
   "author": "ColdRya",
   "type": "module",
   "main": "electron/main.js",
@@ -44,7 +44,7 @@
   },
   "build": {
     "appId": "com.coldrya.voidraider",
-    "productName": "Void Raider",
+    "productName": "ColdRya",
     "publish": [
       {
         "provider": "github",

@@ -34,7 +34,7 @@ async function createWindow() {
     minWidth: 640,
     minHeight: 480,
     backgroundColor: "#0f172a",
-    title: "VOID RAIDER",
+    title: "ColdRya",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

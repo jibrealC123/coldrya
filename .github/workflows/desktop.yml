@@ -63,4 +63,4 @@ jobs:
           gh release create "${{ github.ref_name }}" artifacts/*/* \
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
-            --notes "VOID RAIDER ${{ github.ref_name }} — auto-built release. The desktop app updates to this automatically."
+            --notes "ColdRya ${{ github.ref_name }} — auto-built release. The desktop app updates to this automatically."

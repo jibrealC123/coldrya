@@ -1,4 +1,4 @@
-# VOID RAIDER
+# ColdRya
 
 A 2D arcade space shooter built with React + Vite + HTML5 Canvas. Clear the
 swarm, survive escalating waves, grab power-ups, and chase the high score.

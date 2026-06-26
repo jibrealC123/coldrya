@@ -357,7 +357,7 @@ export default function App() {
       {status === "menu" && coopPhase === "idle" && (
         <Overlay>
           <h1 className="title">
-            VOID<span className="title-accent"> RAIDER</span>
+            COLD<span className="title-accent">RYA</span>
           </h1>
           {pilot && (
             <p className="pilot-greet">

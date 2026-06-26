@@ -523,7 +523,7 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
   return new Promise((resolve) => {
     server.listen(port, () => {
       const actual = server.address().port;
-      console.log(`VOID RAIDER server on :${actual}  (ws + static dist/)`);
+      console.log(`ColdRya server on :${actual}  (ws + static dist/)`);
       resolve({ server, port: actual });
     });
   });
