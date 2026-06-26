@@ -1,0 +1,14 @@
+# Render.com blueprint — one web service hosts the built client + the
+# co-op WebSocket server on the same port (Render provides $PORT).
+# Deploy: push to GitHub, then on render.com → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: void-raider
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

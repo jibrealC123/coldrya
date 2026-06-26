@@ -33,6 +33,19 @@ export class Engine {
     this.pointer = { x: null, y: null, active: false };
     this.running = false;
     this.rafId = null;
+
+    // multiplayer (co-op)
+    this.mp = false;
+    this.net = null;
+    this.world = { w: 1000, h: 720 };
+    this.view = { scale: 1, ox: 0, oy: 0 };
+    this.snap = null;
+    this.remote = new Map(); // smoothed remote player positions, id -> {x,y}
+    this.enemyView = new Map(); // smoothed enemy positions, id -> {x,y}
+    this.prevEnemies = new Map();
+    this.prevAlive = new Map();
+    this.flagImgs = new Map();
+    this._sendAccum = 0;
     this.lastTs = 0;
 
     this._bind();
@@ -76,6 +89,98 @@ export class Engine {
     this.rafId = requestAnimationFrame(this._loop);
   }
 
+  /* ── multiplayer (co-op) ───────────────────────────────────────── */
+  startMultiplayer(net, pilot) {
+    this.mp = true;
+    this.net = net;
+    this.pilot = pilot;
+    this.snap = null;
+    this.remote.clear();
+    this.enemyView.clear();
+    this.prevEnemies.clear();
+    this.prevAlive.clear();
+    this.particles = [];
+    this.shake = 0;
+    // my locally-predicted ship, in WORLD coordinates
+    this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 360 };
+    this.status = "playing";
+    this._computeView();
+    this._emit();
+    this.running = true;
+    this.lastTs = performance.now();
+    this.rafId = requestAnimationFrame(this._loop);
+  }
+
+  applySnap(snap) {
+    if (!this.mp) return;
+    if (snap.w) this.world.w = snap.w;
+    if (snap.h) this.world.h = snap.h;
+    this.snap = snap;
+
+    // spawn explosion particles for enemies that vanished since last snap
+    const nowIds = new Set(snap.enemies.map((e) => e.id));
+    for (const [id, e] of this.prevEnemies) {
+      if (!nowIds.has(id)) this._explode(e.x, e.y, e.r || 14);
+    }
+    this.prevEnemies = new Map(snap.enemies.map((e) => [e.id, { x: e.x, y: e.y, r: e.r }]));
+
+    // explosion when a player just died
+    for (const p of snap.players) {
+      const was = this.prevAlive.get(p.id);
+      if (was === true && p.alive === false) {
+        this._explode(p.x, p.y, 18);
+        this.shake = 0.3;
+      }
+      this.prevAlive.set(p.id, p.alive);
+    }
+
+    // HUD state from the shared world
+    const me = snap.players.find((p) => p.id === this.net?.id);
+    const nextStatus = snap.over ? "over" : "playing";
+    const changed =
+      this.score !== snap.teamScore ||
+      this.wave !== snap.wave ||
+      this.lives !== (me ? me.lives : 0) ||
+      this.status !== nextStatus;
+    this.score = snap.teamScore;
+    this.wave = snap.wave;
+    this.lives = me ? me.lives : 0;
+    this.status = nextStatus;
+    if (changed) this._emit();
+  }
+
+  restartMultiplayer() {
+    this.net?.restart();
+  }
+
+  leaveMultiplayer() {
+    this.running = false;
+    cancelAnimationFrame(this.rafId);
+    this.mp = false;
+    this.net = null;
+    this.snap = null;
+    this.status = "menu";
+    this._emit();
+  }
+
+  _computeView() {
+    const s = Math.min(this.W / this.world.w, this.H / this.world.h);
+    this.view.scale = s;
+    this.view.ox = (this.W - this.world.w * s) / 2;
+    this.view.oy = (this.H - this.world.h * s) / 2;
+  }
+
+  _flag(code) {
+    if (!code) return null;
+    let img = this.flagImgs.get(code);
+    if (!img) {
+      img = new Image();
+      img.src = `https://flagcdn.com/w40/${code}.png`;
+      this.flagImgs.set(code, img);
+    }
+    return img.complete && img.naturalWidth ? img : null;
+  }
+
   pause() {
     if (this.status !== "playing") return;
     this.running = false;
@@ -111,6 +216,7 @@ export class Engine {
       this.player.x = clamp(this.player.x, 20, this.W - 20);
       this.player.y = clamp(this.player.y, 40, this.H - 40);
     }
+    if (this.mp) this._computeView();
   };
 
   _initStars() {
@@ -184,6 +290,7 @@ export class Engine {
 
   /* ── update ────────────────────────────────────────────────────── */
   _update(dt) {
+    if (this.mp) return this._updateMp(dt);
     const p = this.player;
 
     // starfield scroll
@@ -456,6 +563,7 @@ export class Engine {
 
   /* ── render ────────────────────────────────────────────────────── */
   _render() {
+    if (this.mp) return this._renderMp();
     const ctx = this.ctx;
     let ox = 0;
     let oy = 0;
@@ -602,7 +710,8 @@ export class Engine {
         const a = (Math.PI / 3) * i + Math.PI / 6;
         const px = Math.cos(a) * e.r;
         const py = Math.sin(a) * e.r;
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
       }
       ctx.closePath();
       ctx.fill();
@@ -617,5 +726,255 @@ export class Engine {
     }
     ctx.restore();
     ctx.shadowBlur = 0;
+  }
+
+  /* ── multiplayer update / render ───────────────────────────────── */
+  _updateMp(dt) {
+    const me = this.me;
+
+    // local prediction of my own ship (world coords)
+    let dx = 0;
+    let dy = 0;
+    if (this.keys.has("arrowleft") || this.keys.has("a")) dx -= 1;
+    if (this.keys.has("arrowright") || this.keys.has("d")) dx += 1;
+    if (this.keys.has("arrowup") || this.keys.has("w")) dy -= 1;
+    if (this.keys.has("arrowdown") || this.keys.has("s")) dy += 1;
+    if (dx || dy) {
+      const len = Math.hypot(dx, dy) || 1;
+      me.x += (dx / len) * me.speed * dt;
+      me.y += (dy / len) * me.speed * dt;
+    }
+    if (this.pointer.active && this.pointer.x != null) {
+      const wx = (this.pointer.x - this.view.ox) / this.view.scale;
+      const wy = (this.pointer.y - this.view.oy) / this.view.scale;
+      me.x += (wx - me.x) * Math.min(1, dt * 12);
+      me.y += (wy - me.y) * Math.min(1, dt * 12);
+    }
+    me.x = clamp(me.x, 18, this.world.w - 18);
+    me.y = clamp(me.y, 50, this.world.h - 30);
+
+    const firing = this.keys.has(" ") || this.pointer.active;
+    // throttle input to ~30 Hz
+    this._sendAccum += dt;
+    if (this._sendAccum >= 1 / 30) {
+      this._sendAccum = 0;
+      this.net?.sendInput(Math.round(me.x), Math.round(me.y), firing);
+    }
+
+    // starfield (world-space scroll)
+    for (const layer of [this.starsFar, this.starsNear]) {
+      for (const s of layer) {
+        s.y += s.speed * dt;
+        if (s.y > this.H) {
+          s.y = 0;
+          s.x = rand(0, this.W);
+        }
+      }
+    }
+
+    // smooth remote players + enemies toward latest snapshot
+    if (this.snap) {
+      const k = Math.min(1, dt * 14);
+      for (const p of this.snap.players) {
+        if (p.id === this.net?.id) continue;
+        let r = this.remote.get(p.id);
+        if (!r) {
+          r = { x: p.x, y: p.y };
+          this.remote.set(p.id, r);
+        }
+        r.x += (p.x - r.x) * k;
+        r.y += (p.y - r.y) * k;
+        r.name = p.name;
+        r.country = p.country;
+        r.alive = p.alive;
+        r.shield = p.shield;
+        r.invuln = p.invuln;
+      }
+      const liveIds = new Set(this.snap.players.map((p) => p.id));
+      for (const id of this.remote.keys()) if (!liveIds.has(id)) this.remote.delete(id);
+
+      for (const e of this.snap.enemies) {
+        let v = this.enemyView.get(e.id);
+        if (!v) {
+          v = { x: e.x, y: e.y };
+          this.enemyView.set(e.id, v);
+        }
+        v.x += (e.x - v.x) * k;
+        v.y += (e.y - v.y) * k;
+      }
+      const eIds = new Set(this.snap.enemies.map((e) => e.id));
+      for (const id of this.enemyView.keys()) if (!eIds.has(id)) this.enemyView.delete(id);
+    }
+
+    this.shake = Math.max(0, this.shake - dt);
+
+    // particles
+    this.particles = this.particles.filter((pt) => {
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.vx *= 0.94;
+      pt.vy *= 0.94;
+      pt.life -= dt;
+      return pt.life > 0;
+    });
+  }
+
+  _renderMp() {
+    const ctx = this.ctx;
+    ctx.save();
+    // background fills the whole canvas (letterbox stays dark)
+    ctx.fillStyle = "#0b1020";
+    ctx.fillRect(0, 0, this.W, this.H);
+
+    // starfield in screen space
+    for (const s of this.starsFar) {
+      ctx.globalAlpha = s.alpha;
+      ctx.fillStyle = "#93c5fd";
+      ctx.fillRect(s.x, s.y, s.size, s.size);
+    }
+    for (const s of this.starsNear) {
+      ctx.globalAlpha = s.alpha;
+      ctx.fillStyle = "#e0e7ff";
+      ctx.fillRect(s.x, s.y, s.size, s.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // enter world transform (with shake)
+    let sx = 0;
+    let sy = 0;
+    if (this.shake > 0) {
+      sx = rand(-1, 1) * this.shake * 16;
+      sy = rand(-1, 1) * this.shake * 16;
+    }
+    ctx.translate(this.view.ox + sx, this.view.oy + sy);
+    ctx.scale(this.view.scale, this.view.scale);
+
+    // arena border
+    ctx.strokeStyle = "rgba(96,165,250,0.18)";
+    ctx.lineWidth = 2 / this.view.scale;
+    ctx.strokeRect(0, 0, this.world.w, this.world.h);
+
+    const snap = this.snap;
+    if (snap) {
+      // powerups
+      for (const [px, py, type] of snap.pw) {
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = COLORS.power;
+        ctx.strokeStyle = COLORS.power;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-9, -9, 18, 18);
+        ctx.restore();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = COLORS.power;
+        ctx.font = "bold 12px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(type === "triple" ? "T" : type === "rapid" ? "R" : "S", px, py + 4);
+      }
+
+      // particles (world space)
+      for (const pt of this.particles) {
+        ctx.globalAlpha = clamp(pt.life / pt.maxLife, 0, 1);
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      }
+      ctx.globalAlpha = 1;
+
+      // player bullets
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = COLORS.bullet;
+      ctx.fillStyle = COLORS.bullet;
+      for (const [bx, by] of snap.pb) ctx.fillRect(bx - 2, by - 6, 4, 12);
+      // enemy bullets
+      ctx.shadowColor = COLORS.enemyBullet;
+      ctx.fillStyle = COLORS.enemyBullet;
+      for (const [bx, by] of snap.eb) {
+        ctx.beginPath();
+        ctx.arc(bx, by, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      // enemies (smoothed)
+      for (const e of snap.enemies) {
+        const v = this.enemyView.get(e.id) || e;
+        this._drawEnemy({ x: v.x, y: v.y, r: e.r, hp: e.hp, maxHp: e.mh });
+      }
+
+      // remote players
+      for (const [id, r] of this.remote) {
+        if (id === this.net?.id) continue;
+        if (r.alive) this._drawNetShip(r.x, r.y, r.name, r.country, { remote: true, shield: r.shield, invuln: r.invuln });
+      }
+
+      // me (locally predicted)
+      const meSnap = snap.players.find((p) => p.id === this.net?.id);
+      if (!meSnap || meSnap.alive) {
+        this._drawNetShip(this.me.x, this.me.y, this.pilot?.username || "YOU", this.pilot?.country?.code, {
+          remote: false,
+          shield: meSnap?.shield,
+          invuln: meSnap?.invuln,
+        });
+      }
+    }
+
+    ctx.restore();
+  }
+
+  _drawNetShip(x, y, name, country, { remote, shield, invuln }) {
+    const ctx = this.ctx;
+    const body = remote ? "#16a34a" : COLORS.player;
+    const glow = remote ? "#4ade80" : COLORS.playerGlow;
+    ctx.save();
+    ctx.translate(x, y);
+
+    if (invuln && Math.floor(performance.now() / 80) % 2 === 0) ctx.globalAlpha = 0.4;
+
+    if (shield) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 25, 0, Math.PI * 2);
+      ctx.strokeStyle = COLORS.power;
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = COLORS.power;
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 16;
+    ctx.shadowColor = glow;
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(0, -16);
+    ctx.lineTo(13.6, 14.4);
+    ctx.lineTo(0, 7.2);
+    ctx.lineTo(-13.6, 14.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    // flag + name tag above ship (placeholder until ship art arrives)
+    const flag = this._flag(country);
+    ctx.font = "10px monospace";
+    ctx.textAlign = "left";
+    const label = (name || "").toUpperCase();
+    const tw = ctx.measureText(label).width;
+    const fw = flag ? 16 : 0;
+    const totalW = fw + (fw ? 4 : 0) + tw;
+    const startX = -totalW / 2;
+    if (flag) {
+      ctx.drawImage(flag, startX, -34, 16, 11);
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(startX, -34, 16, 11);
+    }
+    ctx.fillStyle = remote ? "#4ade80" : "#bfdbfe";
+    ctx.fillText(label, startX + fw + (fw ? 4 : 0), -25);
+
+    ctx.restore();
   }
 }

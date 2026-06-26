@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Engine } from "./game/engine";
+import { NetClient } from "./net/NetClient";
 import { COUNTRIES, flagUrl } from "./data/countries";
 import "./index.css";
 
@@ -21,12 +22,17 @@ function loadPilot() {
 export default function App() {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
+  const netRef = useRef(null);
 
   const savedPilot = useMemo(loadPilot, []);
-  const [pilot, setPilot] = useState(savedPilot); // { username, country: {code,name} }
+  const [pilot, setPilot] = useState(savedPilot);
 
-  // intro = registration | menu | playing | paused | over
   const [status, setStatus] = useState(savedPilot ? "menu" : "intro");
+  const [mode, setMode] = useState("solo"); // solo | coop
+  const [netStatus, setNetStatus] = useState("idle"); // idle|connecting|connected|reconnecting
+  const [room, setRoom] = useState("");
+  const [playerCount, setPlayerCount] = useState(1);
+
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [wave, setWave] = useState(1);
@@ -43,21 +49,56 @@ export default function App() {
       },
     });
     engineRef.current = engine;
-    return () => engine.destroy();
+    return () => {
+      engine.destroy();
+      netRef.current?.close();
+    };
   }, []);
 
-  // persist high score on game over
+  // persist high score (solo only — co-op is a shared team score)
   useEffect(() => {
-    if (status === "over" && score > high) {
+    if (mode === "solo" && status === "over" && score > high) {
       setHigh(score);
       localStorage.setItem(HIGH_KEY, String(score));
     }
-  }, [status, score, high]);
+  }, [status, score, high, mode]);
 
-  const start = useCallback(() => {
-    // hand pilot to the engine so a flagged ship model can use it later
+  const startSolo = useCallback(() => {
+    setMode("solo");
     engineRef.current?.startGame(pilot);
   }, [pilot]);
+
+  const joinCoop = useCallback(() => {
+    const code = (room.trim() || "LOBBY").toUpperCase().slice(0, 8);
+    setMode("coop");
+    setNetStatus("connecting");
+    const net = new NetClient({
+      onStatus: (s) => setNetStatus(s),
+      onWelcome: () => {
+        engineRef.current?.startMultiplayer(net, pilot);
+      },
+      onSnap: (snap) => {
+        engineRef.current?.applySnap(snap);
+        setPlayerCount(snap.players.length);
+      },
+    });
+    netRef.current = net;
+    net.connect({ name: pilot.username, country: pilot.country.code, room: code });
+  }, [room, pilot]);
+
+  const leaveCoop = useCallback(() => {
+    netRef.current?.close();
+    netRef.current = null;
+    setNetStatus("idle");
+    setMode("solo");
+    engineRef.current?.leaveMultiplayer();
+  }, []);
+
+  const playAgain = useCallback(() => {
+    if (mode === "coop") engineRef.current?.restartMultiplayer();
+    else engineRef.current?.startGame(pilot);
+  }, [mode, pilot]);
+
   const resume = useCallback(() => engineRef.current?.resume(), []);
   const pause = useCallback(() => engineRef.current?.pause(), []);
 
@@ -66,24 +107,24 @@ export default function App() {
     localStorage.setItem(PILOT_KEY, JSON.stringify(p));
     setStatus("menu");
   }, []);
-
   const editPilot = useCallback(() => setStatus("intro"), []);
 
-  // keyboard shortcuts (not during registration — typing there)
+  // keyboard shortcuts
   useEffect(() => {
     if (status === "intro") return;
     const onKey = (e) => {
-      if (e.key === "Enter" && (status === "menu" || status === "over")) start();
-      if (e.key === "Escape" || e.key.toLowerCase() === "p") {
+      if (e.key === "Enter" && status === "menu" && mode === "solo") startSolo();
+      if ((e.key === "Escape" || e.key.toLowerCase() === "p") && mode === "solo") {
         if (status === "playing") pause();
         else if (status === "paused") resume();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [status, start, pause, resume]);
+  }, [status, mode, startSolo, pause, resume]);
 
   const playing = status === "playing";
+  const coop = mode === "coop";
 
   return (
     <div className="game-root">
@@ -93,7 +134,7 @@ export default function App() {
       {(playing || status === "paused") && (
         <div className="hud" aria-hidden="true">
           <div className="hud-left">
-            <span className="hud-label">SCORE</span>
+            <span className="hud-label">{coop ? "TEAM SCORE" : "SCORE"}</span>
             <span className="hud-score">{String(score).padStart(6, "0")}</span>
             {pilot && (
               <span className="hud-pilot">
@@ -105,6 +146,11 @@ export default function App() {
           <div className="hud-center">
             <span className="hud-label">WAVE</span>
             <span className="hud-wave">{wave}</span>
+            {coop && (
+              <span className="hud-room">
+                ROOM {netRef.current?.room || room} · {playerCount}P
+              </span>
+            )}
           </div>
           <div className="hud-right">
             <span className="hud-label">SHIPS</span>
@@ -117,16 +163,30 @@ export default function App() {
         </div>
       )}
 
-      {playing && (
+      {playing && mode === "solo" && (
         <button className="pause-btn" onClick={pause} aria-label="Pause game">
           II
         </button>
       )}
+      {playing && coop && (
+        <button className="leave-btn" onClick={leaveCoop} aria-label="Leave co-op">
+          LEAVE
+        </button>
+      )}
+
+      {/* Connecting overlay for co-op */}
+      {coop && status !== "playing" && status !== "over" && netStatus !== "idle" && (
+        <Overlay>
+          <h2 className="title-sm">{netStatus === "reconnecting" ? "RECONNECTING…" : "CONNECTING…"}</h2>
+          <p className="subtitle">Joining room {room.toUpperCase() || "LOBBY"}</p>
+          <button className="btn btn-ghost" onClick={leaveCoop}>
+            CANCEL
+          </button>
+        </Overlay>
+      )}
 
       {/* REGISTRATION */}
-      {status === "intro" && (
-        <Registration initial={pilot} onComplete={registerPilot} />
-      )}
+      {status === "intro" && <Registration initial={pilot} onComplete={registerPilot} />}
 
       {/* MENU */}
       {status === "menu" && (
@@ -140,9 +200,28 @@ export default function App() {
               PILOT <span className="pilot-name">{pilot.username}</span>
             </p>
           )}
-          <button className="btn btn-primary" onClick={start}>
-            START MISSION
+          <button className="btn btn-primary" onClick={startSolo}>
+            SINGLE PLAYER
           </button>
+
+          <div className="coop-box">
+            <span className="coop-title">CO-OP — PLAY WITH FRIENDS</span>
+            <div className="coop-row">
+              <input
+                className="reg-input coop-input"
+                placeholder="ROOM CODE"
+                value={room}
+                maxLength={8}
+                onChange={(e) => setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                aria-label="Room code"
+              />
+              <button className="btn btn-coop" onClick={joinCoop}>
+                JOIN
+              </button>
+            </div>
+            <span className="coop-hint">Share the same code with friends to play together.</span>
+          </div>
+
           <button className="btn-link" onClick={editPilot}>
             change pilot
           </button>
@@ -151,14 +230,14 @@ export default function App() {
         </Overlay>
       )}
 
-      {/* PAUSED */}
+      {/* PAUSED (solo) */}
       {status === "paused" && (
         <Overlay>
           <h2 className="title-sm">PAUSED</h2>
           <button className="btn btn-primary" onClick={resume}>
             RESUME
           </button>
-          <button className="btn btn-ghost" onClick={start}>
+          <button className="btn btn-ghost" onClick={startSolo}>
             RESTART
           </button>
         </Overlay>
@@ -167,22 +246,22 @@ export default function App() {
       {/* GAME OVER */}
       {status === "over" && (
         <Overlay>
-          <h2 className="title-sm gameover">GAME OVER</h2>
-          {pilot && (
-            <p className="pilot-greet">
-              <img src={flagUrl(pilot.country.code, 40)} alt={pilot.country.name} className="greet-flag" />
-              <span className="pilot-name">{pilot.username}</span>
-            </p>
-          )}
+          <h2 className="title-sm gameover">{coop ? "MISSION FAILED" : "GAME OVER"}</h2>
           <div className="score-final">
-            <span className="hud-label">FINAL SCORE</span>
+            <span className="hud-label">{coop ? "TEAM SCORE" : "FINAL SCORE"}</span>
             <span className="big-score">{String(score).padStart(6, "0")}</span>
-            {score >= high && score > 0 && <span className="new-best">NEW BEST!</span>}
+            {mode === "solo" && score >= high && score > 0 && <span className="new-best">NEW BEST!</span>}
           </div>
-          <button className="btn btn-primary" onClick={start}>
-            PLAY AGAIN
+          <button className="btn btn-primary" onClick={playAgain}>
+            {coop ? "RESTART ROUND" : "PLAY AGAIN"}
           </button>
-          <p className="high">BEST {String(high).padStart(6, "0")}</p>
+          {coop ? (
+            <button className="btn btn-ghost" onClick={leaveCoop}>
+              LEAVE CO-OP
+            </button>
+          ) : (
+            high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>
+          )}
         </Overlay>
       )}
     </div>
@@ -215,7 +294,6 @@ function Registration({ initial, onComplete }) {
       <form className="reg-panel" onSubmit={submit}>
         <h1 className="reg-title">PILOT REGISTRATION</h1>
 
-        {/* Country */}
         <div className="field">
           <label className="field-label" htmlFor="country-search">
             WHERE ARE YOU FROM?
@@ -261,13 +339,10 @@ function Registration({ initial, onComplete }) {
                 <span className="country-name">{c.name}</span>
               </button>
             ))}
-            {filtered.length === 0 && (
-              <p className="country-empty">No countries match “{query}”.</p>
-            )}
+            {filtered.length === 0 && <p className="country-empty">No countries match “{query}”.</p>}
           </div>
         </div>
 
-        {/* Username */}
         <div className="field">
           <label className="field-label" htmlFor="username">
             CALLSIGN
@@ -316,7 +391,7 @@ function Controls() {
       <div className="control-row">
         <kbd>P</kbd>
         <kbd>ESC</kbd>
-        <span>pause</span>
+        <span>pause (solo)</span>
       </div>
       <div className="control-row">
         <span className="hint">or tap &amp; drag to fly + auto-fire</span>
