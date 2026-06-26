@@ -1,7 +1,8 @@
-name: Build desktop apps
+name: Build & release desktop apps
 
 # Build Mac (.dmg/.zip) and Windows (.exe) installers.
-# Run manually from the Actions tab, or push a tag like v1.0.0.
+# Run manually from the Actions tab (build only), or push a tag like v1.0.0
+# to build AND publish a single GitHub Release (the auto-update feed).
 on:
   workflow_dispatch:
   push:
@@ -9,7 +10,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write # allow electron-builder to create/upload GitHub Releases
+  contents: write
 
 jobs:
   build:
@@ -24,30 +25,42 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
       - run: npm ci
-
       - run: npm run build
-
-      # On a version tag: publish to GitHub Releases (creates the auto-update
-      # feed: latest.yml / latest-mac.yml + installers). Otherwise just build.
-      - name: Package & publish
-        run: npx electron-builder ${{ matrix.target }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload installers (build artifacts)
+      # build installers only — do NOT publish here (avoids parallel-publish races)
+      - run: npx electron-builder ${{ matrix.target }} --publish never
+      - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: void-raider-${{ matrix.os }}
+          name: dist-${{ matrix.os }}
           path: |
             release/*.dmg
             release/*.zip
             release/*.exe
             release/*.yml
+            release/*.blockmap
           if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build output
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      # Publish ONE release containing both platforms' installers plus the
+      # update feeds (latest.yml for Windows, latest-mac.yml for macOS).
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" artifacts/*/* \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --notes "VOID RAIDER ${{ github.ref_name }} — auto-built release. The desktop app updates to this automatically."
