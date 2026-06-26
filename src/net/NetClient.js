@@ -5,19 +5,29 @@
    server on :8787; in prod it uses the same origin (wss).
 ═══════════════════════════════════════════════════════════════════════ */
 
+// Default cloud co-op server (used by the desktop app for internet play).
+const CLOUD_SERVER = "wss://void-raider.onrender.com";
+
 export function serverUrl() {
-  // runtime override — e.g. point the desktop app at your cloud server:
-  //   localStorage.setItem("voidraider_server", "https://void-raider.onrender.com")
+  // 1. manual runtime override — point anywhere, e.g. a local server:
+  //    localStorage.setItem("voidraider_server", "ws://localhost:8787")
   try {
     const saved = localStorage.getItem("voidraider_server");
     if (saved) return saved.trim().replace(/^http/, "ws");
   } catch {
     /* ignore */
   }
-  // build-time override (e.g. VITE_SERVER_URL=wss://my-app.onrender.com)
+  // 2. build-time override (e.g. VITE_SERVER_URL=wss://my-app.onrender.com)
   const override = import.meta.env.VITE_SERVER_URL;
   if (override) return override.replace(/^http/, "ws");
+  // 3. dev → local server for testing
   if (import.meta.env.DEV) return "ws://localhost:8787";
+  // 4. production:
+  //    - desktop app is served by its embedded server on localhost, so it
+  //      can't host remote friends → use the shared cloud server for co-op
+  //    - web build on its own domain → connect same-origin (its own server)
+  const host = location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return CLOUD_SERVER;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${location.host}`;
 }
