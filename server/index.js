@@ -123,12 +123,12 @@ function spawnEnemy(room) {
     x: rand(40, WORLD.w - 40),
     y: -30,
     r: tough ? 20 : 14,
-    vy: rand(50, 90) + room.wave * 4,
+    vy: rand(50, 90) + room.wave * 5,
     sway: rand(20, 70),
     phase: rand(0, Math.PI * 2),
     hp: tough ? 3 : 1,
     maxHp: tough ? 3 : 1,
-    canShoot: Math.random() < clamp(0.2 + room.wave * 0.04, 0, 0.7),
+    canShoot: Math.random() < clamp(0.25 + room.wave * 0.05, 0, 0.85),
     fireCd: rand(0.8, 2.5),
     score: tough ? 50 : 20,
   });
@@ -155,14 +155,17 @@ function tick(room, dt) {
   const aliveCount = [...room.players.values()].filter((p) => p.alive).length;
 
   if (!room.over) {
-    // spawning
+    // spawning — ramps hard with the wave
     room.spawnTimer -= dt;
-    const interval = clamp(1.4 - room.wave * 0.08, 0.45, 1.4);
+    const interval = clamp(1.4 - room.wave * 0.1, 0.3, 1.4);
     if (room.spawnTimer <= 0 && aliveCount > 0) {
       room.spawnTimer = interval;
       spawnEnemy(room);
-      // more players → slightly more pressure
-      if (room.players.size > 2 && Math.random() < 0.5) spawnEnemy(room);
+      // burst spawns at higher waves → more enemies on screen
+      if (room.wave >= 4 && Math.random() < 0.4) spawnEnemy(room);
+      if (room.wave >= 8 && Math.random() < 0.4) spawnEnemy(room);
+      // more players → more pressure
+      if (room.players.size > 1 && Math.random() < 0.4) spawnEnemy(room);
     }
     room.waveTimer += dt;
     if (room.waveTimer > 18) {
@@ -205,6 +208,12 @@ function tick(room, dt) {
     return b.y < WORLD.h + 20 && b.y > -20 && b.x > -20 && b.x < WORLD.w + 20;
   });
 
+  // enemy fire scales with wave: faster bullets, shorter cooldown, more
+  // bullets per shot (spread burst)
+  const bulletSpeed = Math.min(220 + room.wave * 18, 520);
+  const shots = Math.min(1 + Math.floor(room.wave / 4), 3);
+  const fireBase = clamp(2.4 - room.wave * 0.13, 0.6, 2.4);
+
   // enemies
   for (const e of room.enemies) {
     e.y += e.vy * dt;
@@ -212,12 +221,14 @@ function tick(room, dt) {
     if (e.canShoot && !room.over) {
       e.fireCd -= dt;
       if (e.fireCd <= 0 && e.y < WORLD.h * 0.7) {
-        e.fireCd = rand(1.4, 3);
+        e.fireCd = rand(fireBase * 0.6, fireBase);
         const target = nearestAlive(room, e.x, e.y);
         if (target) {
           const ang = Math.atan2(target.y - e.y, target.x - e.x);
-          const bs = 240;
-          room.ebullets.push({ x: e.x, y: e.y + e.r, vx: Math.cos(ang) * bs, vy: Math.sin(ang) * bs });
+          for (let s = 0; s < shots; s++) {
+            const a = ang + (s - (shots - 1) / 2) * 0.18;
+            room.ebullets.push({ x: e.x, y: e.y + e.r, vx: Math.cos(a) * bulletSpeed, vy: Math.sin(a) * bulletSpeed });
+          }
         }
       }
     }

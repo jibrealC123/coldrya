@@ -358,15 +358,18 @@ export class Engine {
     this.enemyBullets = this.enemyBullets.filter((b) => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
-      return b.y < this.H + 20 && b.y > -20;
+      return b.y < this.H + 20 && b.y > -20 && b.x > -20 && b.x < this.W + 20;
     });
 
-    // wave / spawning
+    // wave / spawning — ramps hard with the wave
     this.spawnTimer -= dt;
-    const spawnInterval = clamp(1.4 - this.wave * 0.08, 0.45, 1.4);
+    const spawnInterval = clamp(1.4 - this.wave * 0.1, 0.3, 1.4);
     if (this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
       this._spawnEnemy();
+      // burst spawns at higher waves → more enemies on screen
+      if (this.wave >= 4 && Math.random() < 0.4) this._spawnEnemy();
+      if (this.wave >= 8 && Math.random() < 0.4) this._spawnEnemy();
     }
     this.waveTimer += dt;
     if (this.waveTimer > 18) {
@@ -374,6 +377,12 @@ export class Engine {
       this.wave += 1;
       this._emit();
     }
+
+    // enemy fire scales with wave: faster bullets, shorter cooldown, more
+    // bullets per shot (spread burst)
+    const bulletSpeed = Math.min(220 + this.wave * 18, 520);
+    const shots = Math.min(1 + Math.floor(this.wave / 4), 3);
+    const fireBase = clamp(2.4 - this.wave * 0.13, 0.6, 2.4);
 
     // enemies
     for (const e of this.enemies) {
@@ -383,16 +392,18 @@ export class Engine {
       if (e.canShoot) {
         e.fireCd -= dt;
         if (e.fireCd <= 0 && e.y < this.H * 0.7) {
-          e.fireCd = rand(1.4, 3);
+          e.fireCd = rand(fireBase * 0.6, fireBase);
           const ang = Math.atan2(p.y - e.y, p.x - e.x);
-          const bs = 240;
-          this.enemyBullets.push({
-            x: e.x,
-            y: e.y + e.r,
-            vx: Math.cos(ang) * bs,
-            vy: Math.sin(ang) * bs,
-            r: 4,
-          });
+          for (let s = 0; s < shots; s++) {
+            const a = ang + (s - (shots - 1) / 2) * 0.18;
+            this.enemyBullets.push({
+              x: e.x,
+              y: e.y + e.r,
+              vx: Math.cos(a) * bulletSpeed,
+              vy: Math.sin(a) * bulletSpeed,
+              r: 4,
+            });
+          }
         }
       }
     }
@@ -430,12 +441,12 @@ export class Engine {
       x: rand(30, this.W - 30),
       y: -30,
       r: tough ? 20 : 14,
-      vy: rand(50, 90) + this.wave * 4,
+      vy: rand(50, 90) + this.wave * 5,
       sway: rand(20, 70),
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
       maxHp: tough ? 3 : 1,
-      canShoot: Math.random() < clamp(0.2 + this.wave * 0.04, 0, 0.7),
+      canShoot: Math.random() < clamp(0.25 + this.wave * 0.05, 0, 0.85),
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
     });
