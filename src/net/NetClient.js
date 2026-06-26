@@ -6,7 +6,15 @@
 ═══════════════════════════════════════════════════════════════════════ */
 
 export function serverUrl() {
-  // explicit override wins (e.g. VITE_SERVER_URL=wss://my-app.onrender.com)
+  // runtime override — e.g. point the desktop app at your cloud server:
+  //   localStorage.setItem("voidraider_server", "https://void-raider.onrender.com")
+  try {
+    const saved = localStorage.getItem("voidraider_server");
+    if (saved) return saved.trim().replace(/^http/, "ws");
+  } catch {
+    /* ignore */
+  }
+  // build-time override (e.g. VITE_SERVER_URL=wss://my-app.onrender.com)
   const override = import.meta.env.VITE_SERVER_URL;
   if (override) return override.replace(/^http/, "ws");
   if (import.meta.env.DEV) return "ws://localhost:8787";

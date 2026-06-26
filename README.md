@@ -72,6 +72,36 @@ the same port, so a single free web service runs the whole game.
 **Railway / Fly / any Node host:** build command `npm install && npm run build`,
 start command `npm start`. The host's `$PORT` is used automatically.
 
+## Desktop app (Mac / Windows)
+
+The game ships as a native desktop app via **Electron**. The app bundles the
+client **and** the co-op server, so it's fully self-contained — single player
+runs offline and the app hosts co-op locally with zero setup.
+
+```bash
+npm run app        # build + launch the desktop app locally
+npm run dist:mac   # build a macOS .dmg + .zip   -> release/
+npm run dist:win   # build a Windows .exe        -> release/  (run on Windows)
+```
+
+A Windows `.exe` can't be reliably cross-built from a Mac, so the repo includes
+a GitHub Actions workflow (`.github/workflows/desktop.yml`) that builds **both**
+Mac and Windows installers in CI: open the repo's **Actions** tab → **Build
+desktop apps** → **Run workflow**, then download the artifacts. (Pushing a
+`vX.Y.Z` tag triggers it too.)
+
+**Online co-op from the desktop app:** by default the app hosts co-op on your
+own machine (great for single player / LAN). To play with remote friends
+through your deployed cloud server, point the app at it once from the devtools
+console:
+
+```js
+localStorage.setItem("voidraider_server", "https://your-app.onrender.com")
+```
+
+(Unsigned builds: macOS may warn "unidentified developer" — right-click the app
+→ Open the first time. Windows SmartScreen → More info → Run anyway.)
+
 ## Tech
 
 - **React 19** for the menu / HUD / overlay state machine

@@ -2,7 +2,10 @@
   "name": "void-raider",
   "private": true,
   "version": "0.0.0",
+  "description": "VOID RAIDER — a 2D arcade space shooter with online co-op.",
+  "author": "ColdRya",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -10,7 +13,12 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
-    "dev:all": "concurrently -k \"npm:dev\" \"npm:server\""
+    "dev:all": "concurrently -k \"npm:dev\" \"npm:server\"",
+    "electron": "electron .",
+    "app": "npm run build && electron .",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:all": "npm run build && electron-builder --mac --win"
   },
   "dependencies": {
     "react": "^19.2.7",
@@ -24,9 +32,49 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "concurrently": "^10.0.3",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
     "oxlint": "^1.69.0",
     "playwright": "^1.61.1",
     "tailwindcss": "^4.3.1",
     "vite": "^8.1.0"
+  },
+  "build": {
+    "appId": "com.coldrya.voidraider",
+    "productName": "Void Raider",
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist",
+        "to": "dist"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.games",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game"
+    },
+    "directories": {
+      "output": "release"
+    }
   }
 }

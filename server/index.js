@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.join(__dirname, "..", "dist");
+const DEFAULT_DIST = path.join(__dirname, "..", "dist");
 const PORT = process.env.PORT || 8787;
 const TICK = 1000 / 30; // 30 Hz authoritative sim
 const SNAP_EVERY = 1; // broadcast every tick
@@ -36,35 +36,37 @@ const MIME = {
   ".woff2": "font/woff2",
 };
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/healthz") {
-    res.writeHead(200);
-    return res.end("ok");
-  }
-  let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
-  if (urlPath === "/") urlPath = "/index.html";
-  let filePath = path.join(DIST, urlPath);
-  if (!filePath.startsWith(DIST)) {
-    res.writeHead(403);
-    return res.end("forbidden");
-  }
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      // SPA fallback
-      fs.readFile(path.join(DIST, "index.html"), (e2, html) => {
-        if (e2) {
-          res.writeHead(404);
-          return res.end("not found (build the client: npm run build)");
-        }
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(html);
-      });
-      return;
+function createRequestHandler(DIST) {
+  return (req, res) => {
+    if (req.url === "/healthz") {
+      res.writeHead(200);
+      return res.end("ok");
     }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
-    res.end(data);
-  });
-});
+    let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
+    if (urlPath === "/") urlPath = "/index.html";
+    const filePath = path.join(DIST, urlPath);
+    if (!filePath.startsWith(DIST)) {
+      res.writeHead(403);
+      return res.end("forbidden");
+    }
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        // SPA fallback
+        fs.readFile(path.join(DIST, "index.html"), (e2, html) => {
+          if (e2) {
+            res.writeHead(404);
+            return res.end("not found (build the client: npm run build)");
+          }
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(html);
+        });
+        return;
+      }
+      res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
+      res.end(data);
+    });
+  };
+}
 
 /* ── rooms ───────────────────────────────────────────────────────────── */
 const rooms = new Map();
@@ -331,11 +333,14 @@ function snapshot(room) {
   };
 }
 
-/* ── websocket ───────────────────────────────────────────────────────── */
-const wss = new WebSocketServer({ server });
+/* ── server bootstrap ────────────────────────────────────────────────── */
 let pid = 1;
 
-wss.on("connection", (ws) => {
+export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
+  const server = http.createServer(createRequestHandler(distPath));
+  const wss = new WebSocketServer({ server });
+
+  wss.on("connection", (ws) => {
   ws.isAlive = true;
   ws.on("pong", () => {
     ws.isAlive = true;
@@ -393,37 +398,53 @@ wss.on("connection", (ws) => {
   });
 });
 
-// heartbeat: drop dead sockets
-setInterval(() => {
-  for (const ws of wss.clients) {
-    if (ws.isAlive === false) {
-      ws.terminate();
-      continue;
+  // heartbeat: drop dead sockets
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      ws.ping();
     }
-    ws.isAlive = false;
-    ws.ping();
-  }
-}, 15000);
+  }, 15000);
 
-/* ── main loop ───────────────────────────────────────────────────────── */
-let last = Date.now();
-let tickCount = 0;
-setInterval(() => {
-  const now = Date.now();
-  const dt = Math.min((now - last) / 1000, 0.05);
-  last = now;
-  tickCount++;
-  for (const room of rooms.values()) {
-    tick(room, dt);
-    if (tickCount % SNAP_EVERY === 0 && room.players.size > 0) {
-      const snap = JSON.stringify(snapshot(room));
-      for (const p of room.players.values()) {
-        if (p.ws.readyState === 1) p.ws.send(snap);
+  // authoritative main loop
+  let last = Date.now();
+  let tickCount = 0;
+  const loop = setInterval(() => {
+    const now = Date.now();
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    tickCount++;
+    for (const room of rooms.values()) {
+      tick(room, dt);
+      if (tickCount % SNAP_EVERY === 0 && room.players.size > 0) {
+        const snap = JSON.stringify(snapshot(room));
+        for (const p of room.players.values()) {
+          if (p.ws.readyState === 1) p.ws.send(snap);
+        }
       }
     }
-  }
-}, TICK);
+  }, TICK);
 
-server.listen(PORT, () => {
-  console.log(`VOID RAIDER server on :${PORT}  (ws + static dist/)`);
-});
+  server.on("close", () => {
+    clearInterval(heartbeat);
+    clearInterval(loop);
+  });
+
+  return new Promise((resolve) => {
+    server.listen(port, () => {
+      const actual = server.address().port;
+      console.log(`VOID RAIDER server on :${actual}  (ws + static dist/)`);
+      resolve({ server, port: actual });
+    });
+  });
+}
+
+// run standalone when invoked directly (cloud deploy / `npm run server`)
+const invokedDirectly = process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  startServer();
+}
