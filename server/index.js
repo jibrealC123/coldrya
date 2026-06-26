@@ -23,6 +23,16 @@ const WORLD = { w: 1000, h: 720 };
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const d2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
+// XP needed for the next level — moderate curve (kept in sync with the client)
+const xpForLevel = (level) => 12 + (level - 1) * 8;
+function addXp(p, n) {
+  p.xp += n;
+  while (p.xp >= p.xpNext) {
+    p.xp -= p.xpNext;
+    p.level += 1;
+    p.xpNext = xpForLevel(p.level);
+  }
+}
 
 // abuse / DoS limits
 const MAX_PAYLOAD = 4096; // bytes per WS message (game messages are tiny)
@@ -125,6 +135,8 @@ function getRoom(code) {
       over: false,
       enemyId: 1,
       nextRespawnCheck: 0,
+      started: false, // lobby until the host hits START
+      hostId: null,
     };
     rooms.set(code, room);
   }
@@ -149,7 +161,16 @@ function resetRoom(room) {
     p.triple = 0;
     p.rapid = 0;
     p.shield = 0;
+    p.xp = 0;
+    p.level = 1;
+    p.xpNext = xpForLevel(1);
   }
+}
+
+// Host hits START: leave the lobby, wipe any prior round, begin play.
+function startRoom(room) {
+  resetRoom(room);
+  room.started = true;
 }
 
 /* ── sim ─────────────────────────────────────────────────────────────── */
@@ -189,6 +210,9 @@ function nearestAlive(room, x, y) {
 function tick(room, dt) {
   const anyPlayers = room.players.size > 0;
   if (!anyPlayers) return;
+  // lobby: no enemies/bullets until the host starts the round. Snapshots
+  // still broadcast (the loop handles that) so the roster/ready list updates.
+  if (!room.started) return;
 
   const aliveCount = [...room.players.values()].filter((p) => p.alive).length;
 
@@ -227,12 +251,13 @@ function tick(room, dt) {
       const rate = p.rapid > 0 ? 0.12 * 0.45 : 0.12;
       p.cooldown = rate;
       const sp = 760;
+      const o = p.id; // bullet owner → who earns the XP on hit
       if (p.triple > 0) {
-        room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp });
-        room.pbullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -sp });
-        room.pbullets.push({ x: p.x, y: p.y - 12, vx: 160, vy: -sp });
+        room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp, owner: o });
+        room.pbullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -sp, owner: o });
+        room.pbullets.push({ x: p.x, y: p.y - 12, vx: 160, vy: -sp, owner: o });
       } else {
-        room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp });
+        room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp, owner: o });
       }
     }
   }
@@ -297,8 +322,11 @@ function tick(room, dt) {
       if (d2(b.x, b.y, e.x, e.y) < (e.r + 4) ** 2) {
         b.dead = true;
         e.hp -= 1;
+        const shooter = room.players.get(b.owner);
+        if (shooter) addXp(shooter, 1); // every hit feeds the shooter's level bar
         if (e.hp <= 0) {
           room.teamScore += e.score;
+          if (shooter) addXp(shooter, 3); // kill bonus
           e.dead = true;
           if (Math.random() < 0.12) {
             const types = ["triple", "rapid", "shield"];
@@ -367,6 +395,8 @@ function snapshot(room) {
     wave: room.wave,
     teamScore: room.teamScore,
     over: room.over,
+    started: room.started,
+    hostId: room.hostId,
     players: [...room.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
@@ -377,6 +407,10 @@ function snapshot(room) {
       alive: p.alive,
       shield: p.shield > 0,
       invuln: p.invuln > 0,
+      ready: !!p.ready,
+      xp: p.xp,
+      lvl: p.level,
+      xn: p.xpNext,
     })),
     enemies: room.enemies.map((e) => ({ id: e.id, x: Math.round(e.x), y: Math.round(e.y), r: e.r, hp: e.hp, mh: e.maxHp })),
     pb: room.pbullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
@@ -396,8 +430,14 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
   // remove a socket's player from its room (and drop the room if now empty)
   const leaveRoom = (ws) => {
     if (ws.room && ws.player) {
-      ws.room.players.delete(ws.player.id);
-      if (ws.room.players.size === 0) rooms.delete(ws.room.code);
+      const room = ws.room;
+      room.players.delete(ws.player.id);
+      if (room.players.size === 0) {
+        rooms.delete(room.code);
+      } else if (room.hostId === ws.player.id) {
+        // host left — hand the room to whoever's next
+        room.hostId = room.players.keys().next().value;
+      }
     }
     ws.player = null;
     ws.room = null;
@@ -464,17 +504,27 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
           triple: 0,
           rapid: 0,
           shield: 0,
+          ready: false,
+          xp: 0,
+          level: 1,
+          xpNext: xpForLevel(1),
           ws,
         };
         room.players.set(player.id, player);
+        if (room.hostId == null) room.hostId = player.id; // first in = host
         ws.player = player;
         ws.room = room;
-        ws.send(JSON.stringify({ t: "welcome", id: player.id, room: code, w: WORLD.w, h: WORLD.h }));
+        ws.send(JSON.stringify({ t: "welcome", id: player.id, room: code, w: WORLD.w, h: WORLD.h, host: room.hostId === player.id }));
       } else if (msg.t === "input" && ws.player) {
         const p = ws.player;
         if (Number.isFinite(msg.x)) p.x = clamp(msg.x, 18, WORLD.w - 18);
         if (Number.isFinite(msg.y)) p.y = clamp(msg.y, 50, WORLD.h - 30);
         p.firing = !!msg.firing;
+      } else if (msg.t === "ready" && ws.player) {
+        ws.player.ready = !!msg.ready;
+      } else if (msg.t === "start" && ws.room && ws.player) {
+        // only the host can launch the round
+        if (ws.room.hostId === ws.player.id && !ws.room.started) startRoom(ws.room);
       } else if (msg.t === "restart" && ws.room) {
         resetRoom(ws.room);
       }

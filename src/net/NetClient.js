@@ -119,6 +119,18 @@ export class NetClient {
     }
   }
 
+  setReady(ready) {
+    if (this.ws && this.ws.readyState === 1) {
+      this.ws.send(JSON.stringify({ t: "ready", ready: !!ready }));
+    }
+  }
+
+  startGame() {
+    if (this.ws && this.ws.readyState === 1) {
+      this.ws.send(JSON.stringify({ t: "start" }));
+    }
+  }
+
   restart() {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify({ t: "restart" }));

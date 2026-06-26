@@ -6,6 +6,7 @@ import "./index.css";
 
 const HIGH_KEY = "voidraider_high";
 const PILOT_KEY = "voidraider_pilot";
+const MAX_LOBBY = 3; // lobby shows up to 3 pilot slots for now
 
 // readable codes: no ambiguous chars (no O/0, I/1)
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -61,10 +62,12 @@ export default function App() {
   const [denyReason, setDenyReason] = useState("");
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
-  const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive}
+  const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive,ready}
+  const [hostId, setHostId] = useState(null); // current room host's player id
   const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
+  const startedRef = useRef(false); // guards the one-time lobby→arena transition
 
   // desktop auto-update events (only present in the Electron app)
   useEffect(() => {
@@ -75,16 +78,22 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [wave, setWave] = useState(1);
+  const [level, setLevel] = useState(1);
+  const [xp, setXp] = useState(0);
+  const [xpNext, setXpNext] = useState(12);
   const [high, setHigh] = useState(() => Number(localStorage.getItem(HIGH_KEY) || 0));
 
   // build engine once
   useEffect(() => {
     const engine = new Engine(canvasRef.current, {
-      onState: ({ score, lives, wave, status }) => {
+      onState: ({ score, lives, wave, status, level, xp, xpNext }) => {
         setScore(score);
         setLives(lives);
         setWave(wave);
         setStatus(status);
+        if (level != null) setLevel(level);
+        if (xp != null) setXp(xp);
+        if (xpNext != null) setXpNext(xpNext);
       },
     });
     engineRef.current = engine;
@@ -108,11 +117,6 @@ export default function App() {
     engineRef.current?.startGame(pilot);
   }, [pilot]);
 
-  const enterArena = useCallback(() => {
-    engineRef.current?.startMultiplayer(netRef.current, pilot);
-    setCoopPhase("live");
-  }, [pilot]);
-
   const joinCoop = useCallback(
     (codeArg, asHost = false) => {
       const code = ((codeArg ?? room).trim() || "LOBBY").toUpperCase().slice(0, 8);
@@ -122,6 +126,7 @@ export default function App() {
       setMode("coop");
       setCoopPhase("connecting");
       setNetStatus("connecting");
+      startedRef.current = false;
       const startedAt = Date.now();
       const net = new NetClient({
         onStatus: (s, reason) => {
@@ -136,28 +141,32 @@ export default function App() {
           clearTimeout(joinTimer.current);
           joinTimer.current = setTimeout(() => {
             setJoinedRoom(msg.room || code);
+            // everyone lands in the lobby; the host starts the round
             setCoopPhase("joined");
-            // host stays on the splash to copy/share the code, then taps
-            // ENTER ARENA; joiners auto-advance into the game.
-            if (!asHost) {
-              joinTimer.current = setTimeout(() => {
-                engineRef.current?.startMultiplayer(net, pilot);
-                setCoopPhase("live");
-              }, 1700);
-            }
           }, minWait);
         },
         onSnap: (snap) => {
           engineRef.current?.applySnap(snap);
           setPlayerCount(snap.players.length);
+          setHostId(snap.hostId);
+          // host pressed START → all clients enter the arena together
+          if (snap.started && !startedRef.current) {
+            startedRef.current = true;
+            clearTimeout(joinTimer.current);
+            engineRef.current?.startMultiplayer(net, pilot);
+            setCoopPhase("live");
+          }
           // only re-render the roster when it actually changes (snapshots are 30Hz)
           const roster = snap.players.map((pl) => ({
             id: pl.id,
             name: pl.name,
             country: pl.country,
             alive: pl.alive,
+            ready: pl.ready,
           }));
-          const key = roster.map((r) => `${r.id}:${r.name}:${r.country}:${r.alive ? 1 : 0}`).join("|");
+          const key =
+            `${snap.hostId}|` +
+            roster.map((r) => `${r.id}:${r.name}:${r.country}:${r.alive ? 1 : 0}:${r.ready ? 1 : 0}`).join("|");
           if (key !== rosterKeyRef.current) {
             rosterKeyRef.current = key;
             setPlayers(roster);
@@ -173,6 +182,15 @@ export default function App() {
   const createRoom = useCallback(() => {
     joinCoop(genRoomCode(), true);
   }, [joinCoop]);
+
+  const toggleReady = useCallback(() => {
+    const me = players.find((p) => p.id === netRef.current?.id);
+    netRef.current?.setReady(!me?.ready);
+  }, [players]);
+
+  const hostStart = useCallback(() => {
+    netRef.current?.startGame();
+  }, []);
 
   const copyCode = useCallback(() => {
     navigator.clipboard?.writeText(joinedRoom).then(
@@ -192,8 +210,10 @@ export default function App() {
     setCoopPhase("idle");
     setMode("solo");
     setPlayers([]);
+    setHostId(null);
     setDenyReason("");
     rosterKeyRef.current = "";
+    startedRef.current = false;
     engineRef.current?.leaveMultiplayer();
   }, []);
 
@@ -243,6 +263,15 @@ export default function App() {
           <div className="hud-left">
             <span className="hud-label">{coop ? "TEAM SCORE" : "SCORE"}</span>
             <span className="hud-score">{String(score).padStart(6, "0")}</span>
+            <div className="level-box">
+              <span className="hud-label level-label">LV {level}</span>
+              <div className="level-bar">
+                <div
+                  className="level-fill"
+                  style={{ width: `${Math.min(100, Math.round((xp / Math.max(1, xpNext)) * 100))}%` }}
+                />
+              </div>
+            </div>
             {coop ? (
               <div className="hud-roster">
                 <span className="hud-label hud-roster-label">PILOTS · {players.length}</span>
@@ -329,27 +358,69 @@ export default function App() {
       )}
 
       {/* CO-OP: joined splash */}
-      {coopPhase === "joined" && (
-        <Overlay>
-          <div className="join-splash">
-            <p className="join-line">{hostMode ? "ROOM CREATED" : "YOU JOINED"}</p>
-            <h2 className="join-room-name">ROOM {joinedRoom}</h2>
-            {hostMode ? (
-              <>
-                <p className="join-share">Share this code with your friends</p>
-                <button className="btn btn-ghost copy-btn" onClick={copyCode}>
-                  {copied ? "COPIED!" : "COPY CODE"}
+      {coopPhase === "joined" && (() => {
+        const myId = netRef.current?.id;
+        const isHost = hostId != null ? hostId === myId : hostMode;
+        const me = players.find((p) => p.id === myId);
+        const others = players.filter((p) => p.id !== hostId);
+        const canStart = others.length === 0 || others.every((p) => p.ready);
+        const slots = [...players];
+        while (slots.length < MAX_LOBBY) slots.push(null);
+        return (
+          <Overlay>
+            <div className="lobby">
+              <p className="join-line">{isHost ? "ROOM CREATED" : "YOU JOINED"}</p>
+              <h2 className="join-room-name">ROOM {joinedRoom}</h2>
+              {isHost && (
+                <div className="lobby-share">
+                  <span className="join-share">Share this code with your friends</span>
+                  <button className="btn btn-ghost copy-btn" onClick={copyCode}>
+                    {copied ? "COPIED!" : "COPY CODE"}
+                  </button>
+                </div>
+              )}
+
+              <div className="lobby-list">
+                {slots.map((pl, i) =>
+                  pl ? (
+                    <div key={pl.id} className={`lobby-slot${pl.ready || pl.id === hostId ? " on" : ""}`}>
+                      <img src={flagUrl(pl.country, 28)} alt="" className="lobby-flag" />
+                      <span className="lobby-name">{pl.name}</span>
+                      {pl.id === myId && <span className="lobby-tag you">YOU</span>}
+                      <span className={`lobby-status${pl.id === hostId ? " host" : pl.ready ? " ready" : ""}`}>
+                        {pl.id === hostId ? "HOST" : pl.ready ? "READY" : "NOT READY"}
+                      </span>
+                    </div>
+                  ) : (
+                    <div key={`empty-${i}`} className="lobby-slot empty">
+                      <span className="lobby-name">Waiting for a pilot…</span>
+                    </div>
+                  )
+                )}
+              </div>
+
+              {isHost ? (
+                <>
+                  <button className="btn btn-primary" onClick={hostStart} disabled={!canStart}>
+                    START GAME
+                  </button>
+                  {!canStart && <p className="lobby-hint">Waiting for everyone to ready up…</p>}
+                </>
+              ) : (
+                <button
+                  className={`btn btn-ready${me?.ready ? " on" : ""}`}
+                  onClick={toggleReady}
+                >
+                  {me?.ready ? "READY ✓ — TAP TO CANCEL" : "READY!"}
                 </button>
-                <button className="btn btn-primary" onClick={enterArena}>
-                  ENTER ARENA
-                </button>
-              </>
-            ) : (
-              <p className="join-ready">GET READY…</p>
-            )}
-          </div>
-        </Overlay>
-      )}
+              )}
+              <button className="btn btn-ghost lobby-leave" onClick={leaveCoop}>
+                LEAVE
+              </button>
+            </div>
+          </Overlay>
+        );
+      })()}
 
       {/* CO-OP: lost connection mid-game */}
       {coopPhase === "live" && netStatus === "reconnecting" && (

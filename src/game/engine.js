@@ -6,6 +6,8 @@
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// XP needed to reach the next level — moderate curve (kept in sync with server)
+const xpForLevel = (level) => 12 + (level - 1) * 8;
 const dist2 = (ax, ay, bx, by) => {
   const dx = ax - bx;
   const dy = ay - by;
@@ -211,6 +213,9 @@ export class Engine {
     this.score = 0;
     this.lives = 3;
     this.wave = 1;
+    this.level = 1;
+    this.xp = 0;
+    this.xpNext = xpForLevel(1);
     this.waveTimer = 0;
     this.spawnTimer = 0;
     this.shake = 0;
@@ -239,6 +244,9 @@ export class Engine {
     this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
     this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480 };
+    this.level = 1;
+    this.xp = 0;
+    this.xpNext = xpForLevel(1);
     this.status = "playing";
     this._computeView();
     this._emit();
@@ -282,14 +290,22 @@ export class Engine {
       this.prevMyLives = me.lives;
     }
     const nextStatus = snap.over ? "over" : "playing";
+    const myLevel = me && me.lvl != null ? me.lvl : this.level;
+    const myXp = me && me.xp != null ? me.xp : this.xp;
+    const myXpNext = me && me.xn != null ? me.xn : this.xpNext;
     const changed =
       this.score !== snap.teamScore ||
       this.wave !== snap.wave ||
       this.lives !== (me ? me.lives : 0) ||
+      this.level !== myLevel ||
+      this.xp !== myXp ||
       this.status !== nextStatus;
     this.score = snap.teamScore;
     this.wave = snap.wave;
     this.lives = me ? me.lives : 0;
+    this.level = myLevel;
+    this.xp = myXp;
+    this.xpNext = myXpNext;
     this.status = nextStatus;
     if (changed) this._emit();
   }
@@ -420,7 +436,22 @@ export class Engine {
       lives: this.lives,
       wave: this.wave,
       status: this.status,
+      level: this.level,
+      xp: this.xp,
+      xpNext: this.xpNext,
     });
+  }
+
+  // Grant XP and level up when the bar fills. Solo only; co-op XP is
+  // tracked authoritatively on the server and arrives via applySnap.
+  _addXp(n) {
+    this.xp += n;
+    while (this.xp >= this.xpNext) {
+      this.xp -= this.xpNext;
+      this.level += 1;
+      this.xpNext = xpForLevel(this.level);
+    }
+    this._emit();
   }
 
   /* ── main loop ─────────────────────────────────────────────────── */
@@ -619,8 +650,10 @@ export class Engine {
           b.dead = true;
           e.hp -= 1;
           this._spark(b.x, b.y, COLORS.enemyGlow, 4);
+          this._addXp(1); // every hit feeds the level bar
           if (e.hp <= 0) {
             this.score += e.score;
+            this._addXp(3); // kill bonus
             this._explode(e.x, e.y, e.r);
             this.shake = 0.12;
             if (Math.random() < 0.12) this._dropPower(e.x, e.y);
@@ -926,6 +959,21 @@ export class Engine {
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
     ctx.imageSmoothingEnabled = smooth;
+
+    // health bar — multi-HP enemies (cruisers / future monsters) so you
+    // can watch their health drop as you hit them
+    if (e.maxHp > 1) {
+      const bw = e.r * 2;
+      const bh = 4;
+      const by = -h / 2 - 9;
+      const frac = clamp(e.hp / e.maxHp, 0, 1);
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(-bw / 2 - 1, by - 1, bw + 2, bh + 2);
+      ctx.fillStyle = "#14331a";
+      ctx.fillRect(-bw / 2, by, bw, bh);
+      ctx.fillStyle = frac > 0.5 ? "#22C55E" : frac > 0.25 ? "#fde047" : "#f87171";
+      ctx.fillRect(-bw / 2, by, bw * frac, bh);
+    }
     ctx.restore();
   }
 

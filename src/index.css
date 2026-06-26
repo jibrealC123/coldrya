@@ -109,6 +109,30 @@ body {
   gap: 6px;
 }
 
+/* ── Level bar (top-left) ─────────────────────────────────────────── */
+.level-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.level-label {
+  color: var(--c-blue-glow);
+}
+.level-bar {
+  width: 132px;
+  height: 8px;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  overflow: hidden;
+}
+.level-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--c-blue), var(--c-blue-glow));
+  box-shadow: 0 0 8px var(--c-blue-glow);
+  transition: width 0.18s ease-out;
+}
+
 .life-pip {
   width: 14px;
   height: 15px;
@@ -741,6 +765,115 @@ kbd {
   letter-spacing: 2px;
   color: var(--c-blue-glow);
   animation: pulse 0.9s ease-in-out infinite;
+}
+
+/* ── Co-op lobby ──────────────────────────────────────────────────── */
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  width: min(420px, 90vw);
+  animation: joinPop 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+.lobby-share {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.lobby-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0;
+}
+.lobby-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(96, 165, 250, 0.06);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: 6px;
+}
+.lobby-slot.on {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.08);
+}
+.lobby-slot.empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.15);
+  opacity: 0.5;
+}
+.lobby-flag {
+  width: 28px;
+  height: 19px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.lobby-name {
+  font-family: var(--font-term);
+  font-size: 20px;
+  color: #e2e8f0;
+  flex: 1;
+  text-align: left;
+}
+.lobby-slot.empty .lobby-name {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 16px;
+}
+.lobby-tag {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+}
+.lobby-tag.host {
+  background: var(--c-blue);
+  color: #fff;
+}
+.lobby-tag.you {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+.lobby-status {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.lobby-status.ready {
+  color: var(--c-green);
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+.lobby-status.host {
+  color: var(--c-blue-glow);
+}
+.btn-ready {
+  background: var(--c-green);
+  border: 2px solid #4ade80;
+  color: #052e16;
+  font-weight: bold;
+}
+.btn-ready:hover {
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.6);
+}
+.btn-ready.on {
+  background: transparent;
+  color: var(--c-green);
+}
+.lobby-hint {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.lobby-leave {
+  margin-top: 2px;
 }
 
 /* ── Auto-update ──────────────────────────────────────────────────── */
