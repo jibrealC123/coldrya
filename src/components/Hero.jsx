@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { SparkleIcon, ChevronRightIcon, ExternalLinkIcon } from "./Icons";
+import { useState, useRef, useEffect } from "react";
+import { SparkleIcon, ChevronRightIcon, ExternalLinkIcon, ActivityIcon, ShirtIcon, ShoppingBagIcon } from "./Icons";
 import { outfitDatabase } from "../data/outfits";
 
 /* ── Utility: all outfits flat, with a style label ─────────────────── */
@@ -43,6 +43,72 @@ const TILES = [
     span: "col-span-1",
   },
 ];
+
+/* ── Style Engine animated particle canvas ──────────────────────────── */
+function StyleEngineViz() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const dots = Array.from({ length: 320 }, (_, i) => ({
+      x: (i / 320) * W * 0.86 + W * 0.07,
+      baseY: H / 2 + (Math.random() - 0.5) * 72,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.25 + Math.random() * 0.45,
+      amp: 2 + Math.random() * 10,
+      r: 1.4 + Math.random() * 2.2,
+      alpha: 0.25 + Math.random() * 0.65,
+      violet: Math.random() > 0.35,
+    }));
+
+    let frame;
+    let t = 0;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      t += 0.008;
+      dots.forEach((d) => {
+        const y = d.baseY + Math.sin(t * d.speed + d.phase) * d.amp;
+        ctx.beginPath();
+        ctx.arc(d.x, y, d.r, 0, Math.PI * 2);
+        ctx.fillStyle = d.violet
+          ? `rgba(124,58,237,${d.alpha})`
+          : `rgba(192,132,252,${d.alpha * 0.7})`;
+        ctx.fill();
+      });
+      frame = requestAnimationFrame(draw);
+    };
+
+    draw();
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return <canvas ref={canvasRef} width={560} height={400} className="w-full h-full" />;
+}
+
+/* ── Feature row for the Style Engine section ───────────────────────── */
+function EngineFeature({ icon: Icon, title, desc, dimmed = false }) {
+  return (
+    <div className={`py-7 border-b border-stone-200 last:border-0 flex gap-5 items-start transition-opacity ${dimmed ? "opacity-30" : ""}`}>
+      <div className="w-11 h-11 flex-shrink-0 border border-stone-300 rounded-lg flex items-center justify-center bg-white">
+        <Icon size={18} className="text-stone-600" />
+      </div>
+      <div>
+        <p className="font-semibold text-stone-900 mb-1.5 text-[15px]" style={{ fontFamily: "var(--font-ui)", fontWeight: 600 }}>
+          {title}
+        </p>
+        <p className="text-stone-500 text-[13.5px] leading-relaxed" style={{ fontFamily: "var(--font-ui)", fontWeight: 300 }}>
+          {desc}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /* ── Mini outfit card for the trending section ──────────────────────── */
 function TrendCard({ outfit, onStart }) {
@@ -232,7 +298,66 @@ export default function Hero({ onStart }) {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════
-          3. TRENDING LOOKS
+          3. STYLE ENGINE — split panel (light bg)
+      ══════════════════════════════════════════════════════════════ */}
+      <section className="bg-[#f2f2f5] py-20 md:py-28">
+        <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 clamp(16px, 3vw, 48px)" }}>
+
+          {/* Section label */}
+          <div className="flex items-center gap-4 mb-12">
+            <div className="w-2 h-2 bg-stone-900 rounded-none flex-shrink-0" />
+            <p className="text-[11px] tracking-[0.28em] uppercase text-stone-500" style={{ fontFamily: "var(--font-ui)", fontWeight: 600 }}>
+              01 &nbsp;&nbsp;&nbsp; The Style Engine
+            </p>
+          </div>
+
+          {/* Two-column split */}
+          <div className="grid md:grid-cols-2 gap-6 items-stretch">
+
+            {/* Left — animated visualization card */}
+            <div className="border border-stone-300 bg-white rounded-sm overflow-hidden flex flex-col">
+              <div className="flex-1 flex items-center justify-center p-6">
+                <StyleEngineViz />
+              </div>
+              <div className="px-6 py-4 border-t border-stone-200">
+                <p className="text-[10px] tracking-[0.22em] uppercase text-stone-400" style={{ fontFamily: "var(--font-ui)", fontWeight: 600 }}>
+                  Your Style · Mapped in Seconds
+                </p>
+              </div>
+            </div>
+
+            {/* Right — heading + features */}
+            <div className="border border-stone-300 bg-white rounded-sm p-8 md:p-10 flex flex-col justify-center">
+              <h2
+                className="text-stone-900 leading-[1.08] tracking-tight mb-8"
+                style={{ fontFamily: "var(--font-display)", fontSize: "clamp(2rem, 3.5vw, 3rem)", fontWeight: 500 }}
+              >
+                One outfit. Built around your body.
+              </h2>
+
+              <EngineFeature
+                icon={ActivityIcon}
+                title="Style profiling"
+                desc="We read your measurements, build type, taste, and budget in 4 quick questions — no account needed."
+              />
+              <EngineFeature
+                icon={ShirtIcon}
+                title="AI outfit matching"
+                desc="Every item is pulled from real brands, sized to your body, and priced within your budget."
+              />
+              <EngineFeature
+                icon={ShoppingBagIcon}
+                title="Wardrobe building"
+                desc="Full wardrobe curation across seasons and occasions — coming soon."
+                dimmed
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════
+          4. TRENDING LOOKS
       ══════════════════════════════════════════════════════════════ */}
       <section className="bg-[#0d0d0d] py-16 md:py-20">
         <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 clamp(16px, 3vw, 48px)" }}>
