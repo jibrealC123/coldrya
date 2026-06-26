@@ -1,7 +1,7 @@
 {
   "name": "void-raider",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "VOID RAIDER — a 2D arcade space shooter with online co-op.",
   "author": "ColdRya",
   "type": "module",
