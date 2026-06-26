@@ -41,7 +41,10 @@ export class Engine {
   }
 
   /* ── lifecycle ─────────────────────────────────────────────────── */
-  startGame() {
+  startGame(pilot = null) {
+    // pilot = { username, country: { code, name } } — kept for the ship
+    // model / flag that gets attached later.
+    this.pilot = pilot;
     this.player = {
       x: this.W / 2,
       y: this.H - 90,
