@@ -269,7 +269,9 @@ export class Engine {
     this.prevEnemies = new Map(snap.enemies.map((e) => [e.id, { x: e.x, y: e.y, r: e.r }]));
 
     // explosion when a player just died
+    const playerIds = new Set();
     for (const p of snap.players) {
+      playerIds.add(p.id);
       const was = this.prevAlive.get(p.id);
       if (was === true && p.alive === false) {
         this._explode(p.x, p.y, 18);
@@ -277,6 +279,8 @@ export class Engine {
       }
       this.prevAlive.set(p.id, p.alive);
     }
+    // prune players who left so the map can't grow unbounded over a session
+    for (const id of this.prevAlive.keys()) if (!playerIds.has(id)) this.prevAlive.delete(id);
 
     // HUD state from the shared world
     const me = snap.players.find((p) => p.id === this.net?.id);
@@ -960,9 +964,9 @@ export class Engine {
     ctx.shadowBlur = 0;
     ctx.imageSmoothingEnabled = smooth;
 
-    // health bar — multi-HP enemies (cruisers / future monsters) so you
-    // can watch their health drop as you hit them
-    if (e.maxHp > 1) {
+    // health bar — every enemy gets one so you can watch its health drop
+    // as you hit it (cruisers, drones, future monsters)
+    {
       const bw = e.r * 2;
       const bh = 4;
       const by = -h / 2 - 9;
