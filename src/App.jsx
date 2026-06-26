@@ -44,7 +44,9 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
+  const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive}
   const joinTimer = useRef(null);
+  const rosterKeyRef = useRef("");
 
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -118,6 +120,18 @@ export default function App() {
         onSnap: (snap) => {
           engineRef.current?.applySnap(snap);
           setPlayerCount(snap.players.length);
+          // only re-render the roster when it actually changes (snapshots are 30Hz)
+          const roster = snap.players.map((pl) => ({
+            id: pl.id,
+            name: pl.name,
+            country: pl.country,
+            alive: pl.alive,
+          }));
+          const key = roster.map((r) => `${r.id}:${r.name}:${r.country}:${r.alive ? 1 : 0}`).join("|");
+          if (key !== rosterKeyRef.current) {
+            rosterKeyRef.current = key;
+            setPlayers(roster);
+          }
         },
       });
       netRef.current = net;
@@ -147,6 +161,8 @@ export default function App() {
     setNetStatus("idle");
     setCoopPhase("idle");
     setMode("solo");
+    setPlayers([]);
+    rosterKeyRef.current = "";
     engineRef.current?.leaveMultiplayer();
   }, []);
 
@@ -192,11 +208,29 @@ export default function App() {
           <div className="hud-left">
             <span className="hud-label">{coop ? "TEAM SCORE" : "SCORE"}</span>
             <span className="hud-score">{String(score).padStart(6, "0")}</span>
-            {pilot && (
-              <span className="hud-pilot">
-                <img src={flagUrl(pilot.country.code, 20)} alt="" className="hud-flag" />
-                {pilot.username}
-              </span>
+            {coop ? (
+              <div className="hud-roster">
+                <span className="hud-label hud-roster-label">PILOTS · {players.length}</span>
+                {players.map((pl) => (
+                  <span
+                    key={pl.id}
+                    className={`hud-pilot${pl.alive ? "" : " dead"}${
+                      pl.id === netRef.current?.id ? " me" : ""
+                    }`}
+                  >
+                    <img src={flagUrl(pl.country, 20)} alt="" className="hud-flag" />
+                    {pl.name}
+                    {pl.id === netRef.current?.id && <span className="you-tag">YOU</span>}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              pilot && (
+                <span className="hud-pilot">
+                  <img src={flagUrl(pilot.country.code, 20)} alt="" className="hud-flag" />
+                  {pilot.username}
+                </span>
+              )
             )}
           </div>
           <div className="hud-center">
