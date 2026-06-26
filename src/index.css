@@ -814,6 +814,13 @@ kbd {
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
+/* shown only if a flag image fails — a neutral box, never a broken icon */
+.flag-fallback {
+  display: inline-block;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex: none;
+}
 .lobby-name {
   font-family: var(--font-term);
   font-size: 20px;

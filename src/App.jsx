@@ -32,6 +32,21 @@ function ShipPip() {
   );
 }
 
+// Country flag with a graceful fallback: if the image ever fails to load
+// (bad code, flagcdn down), show a neutral box instead of a broken-image icon.
+function Flag({ code, w = 40, className }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <span className={`flag-fallback ${className || ""}`} aria-hidden="true" />;
+  return (
+    <img
+      src={flagUrl(code, w)}
+      alt=""
+      className={className}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 function loadPilot() {
   try {
     const raw = localStorage.getItem(PILOT_KEY);
@@ -282,7 +297,7 @@ export default function App() {
                       pl.id === netRef.current?.id ? " me" : ""
                     }`}
                   >
-                    <img src={flagUrl(pl.country, 20)} alt="" className="hud-flag" />
+                    <Flag code={pl.country} w={20} className="hud-flag" />
                     {pl.name}
                     {pl.id === netRef.current?.id && <span className="you-tag">YOU</span>}
                   </span>
@@ -291,7 +306,7 @@ export default function App() {
             ) : (
               pilot && (
                 <span className="hud-pilot">
-                  <img src={flagUrl(pilot.country.code, 20)} alt="" className="hud-flag" />
+                  <Flag code={pilot.country.code} w={20} className="hud-flag" />
                   {pilot.username}
                 </span>
               )
@@ -384,7 +399,7 @@ export default function App() {
                 {slots.map((pl, i) =>
                   pl ? (
                     <div key={pl.id} className={`lobby-slot${pl.ready || pl.id === hostId ? " on" : ""}`}>
-                      <img src={flagUrl(pl.country, 28)} alt="" className="lobby-flag" />
+                      <Flag code={pl.country} w={40} className="lobby-flag" />
                       <span className="lobby-name">{pl.name}</span>
                       {pl.id === myId && <span className="lobby-tag you">YOU</span>}
                       <span className={`lobby-status${pl.id === hostId ? " host" : pl.ready ? " ready" : ""}`}>
