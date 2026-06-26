@@ -30,8 +30,11 @@ export default function App() {
   const [status, setStatus] = useState(savedPilot ? "menu" : "intro");
   const [mode, setMode] = useState("solo"); // solo | coop
   const [netStatus, setNetStatus] = useState("idle"); // idle|connecting|connected|reconnecting
+  const [coopPhase, setCoopPhase] = useState("idle"); // idle|connecting|joined|live
+  const [joinedRoom, setJoinedRoom] = useState("");
   const [room, setRoom] = useState("");
   const [playerCount, setPlayerCount] = useState(1);
+  const joinTimer = useRef(null);
 
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -52,6 +55,7 @@ export default function App() {
     return () => {
       engine.destroy();
       netRef.current?.close();
+      clearTimeout(joinTimer.current);
     };
   }, []);
 
@@ -71,11 +75,24 @@ export default function App() {
   const joinCoop = useCallback(() => {
     const code = (room.trim() || "LOBBY").toUpperCase().slice(0, 8);
     setMode("coop");
+    setCoopPhase("connecting");
     setNetStatus("connecting");
+    const startedAt = Date.now();
     const net = new NetClient({
       onStatus: (s) => setNetStatus(s),
-      onWelcome: () => {
-        engineRef.current?.startMultiplayer(net, pilot);
+      onWelcome: (msg) => {
+        // always show "PLEASE WAIT" for a beat, then the joined splash,
+        // then drop into the arena
+        const minWait = Math.max(0, 800 - (Date.now() - startedAt));
+        clearTimeout(joinTimer.current);
+        joinTimer.current = setTimeout(() => {
+          setJoinedRoom(msg.room || code);
+          setCoopPhase("joined");
+          joinTimer.current = setTimeout(() => {
+            engineRef.current?.startMultiplayer(net, pilot);
+            setCoopPhase("live");
+          }, 1700);
+        }, minWait);
       },
       onSnap: (snap) => {
         engineRef.current?.applySnap(snap);
@@ -87,9 +104,11 @@ export default function App() {
   }, [room, pilot]);
 
   const leaveCoop = useCallback(() => {
+    clearTimeout(joinTimer.current);
     netRef.current?.close();
     netRef.current = null;
     setNetStatus("idle");
+    setCoopPhase("idle");
     setMode("solo");
     engineRef.current?.leaveMultiplayer();
   }, []);
@@ -174,13 +193,46 @@ export default function App() {
         </button>
       )}
 
-      {/* Connecting overlay for co-op */}
-      {coop && status !== "playing" && status !== "over" && netStatus !== "idle" && (
+      {/* CO-OP: waiting to connect */}
+      {coopPhase === "connecting" && (
         <Overlay>
-          <h2 className="title-sm">{netStatus === "reconnecting" ? "RECONNECTING…" : "CONNECTING…"}</h2>
-          <p className="subtitle">Joining room {room.toUpperCase() || "LOBBY"}</p>
+          <h2 className="title-sm wait-title">
+            {netStatus === "reconnecting" ? "RECONNECTING" : "PLEASE WAIT"}
+          </h2>
+          <div className="loader" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <p className="subtitle">Joining room {room.toUpperCase() || "LOBBY"}…</p>
           <button className="btn btn-ghost" onClick={leaveCoop}>
             CANCEL
+          </button>
+        </Overlay>
+      )}
+
+      {/* CO-OP: joined splash */}
+      {coopPhase === "joined" && (
+        <Overlay>
+          <div className="join-splash">
+            <p className="join-line">YOU JOINED</p>
+            <h2 className="join-room-name">ROOM {joinedRoom}</h2>
+            <p className="join-ready">GET READY…</p>
+          </div>
+        </Overlay>
+      )}
+
+      {/* CO-OP: lost connection mid-game */}
+      {coopPhase === "live" && netStatus === "reconnecting" && (
+        <Overlay>
+          <h2 className="title-sm wait-title">RECONNECTING</h2>
+          <div className="loader" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <button className="btn btn-ghost" onClick={leaveCoop}>
+            LEAVE
           </button>
         </Overlay>
       )}
@@ -189,7 +241,7 @@ export default function App() {
       {status === "intro" && <Registration initial={pilot} onComplete={registerPilot} />}
 
       {/* MENU */}
-      {status === "menu" && (
+      {status === "menu" && coopPhase === "idle" && (
         <Overlay>
           <h1 className="title">
             VOID<span className="title-accent"> RAIDER</span>
