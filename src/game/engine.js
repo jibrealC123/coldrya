@@ -33,6 +33,8 @@ export class Engine {
     this.pointer = { x: null, y: null, active: false };
     this.running = false;
     this.rafId = null;
+    this.hurt = 0; // red "zap" flash timer
+    this.freeze = 0; // hitstop timer
 
     // multiplayer (co-op)
     this.mp = false;
@@ -101,6 +103,9 @@ export class Engine {
     this.prevAlive.clear();
     this.particles = [];
     this.shake = 0;
+    this.hurt = 0;
+    this.freeze = 0;
+    this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
     this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 360 };
     this.status = "playing";
@@ -136,6 +141,15 @@ export class Engine {
 
     // HUD state from the shared world
     const me = snap.players.find((p) => p.id === this.net?.id);
+    // hurt feedback when MY ship loses a life
+    if (me) {
+      if (this.prevMyLives != null && me.lives < this.prevMyLives) {
+        this.hurt = 0.5;
+        this.freeze = 0.12;
+        this.shake = 0.32;
+      }
+      this.prevMyLives = me.lives;
+    }
     const nextStatus = snap.over ? "over" : "playing";
     const changed =
       this.score !== snap.teamScore ||
@@ -283,8 +297,16 @@ export class Engine {
     if (!this.running) return;
     const dt = Math.min((ts - this.lastTs) / 1000, 0.05);
     this.lastTs = ts;
-    this._update(dt);
-    this._render();
+    // hurt flash always fades on real time
+    this.hurt = Math.max(0, (this.hurt || 0) - dt);
+    if (this.freeze > 0) {
+      // brief hitstop — world frozen, but still render the frame + flash
+      this.freeze -= dt;
+      this._render();
+    } else {
+      this._update(dt);
+      this._render();
+    }
     this.rafId = requestAnimationFrame(this._loop);
   };
 
@@ -361,15 +383,18 @@ export class Engine {
       return b.y < this.H + 20 && b.y > -20 && b.x > -20 && b.x < this.W + 20;
     });
 
-    // wave / spawning — ramps hard with the wave
+    // difficulty steps up every 3 waves (a "tier")
+    const tier = Math.floor((this.wave - 1) / 3);
+
+    // wave / spawning — denser each tier, with burst spawns
     this.spawnTimer -= dt;
-    const spawnInterval = clamp(1.4 - this.wave * 0.1, 0.3, 1.4);
+    const spawnInterval = clamp(1.4 - tier * 0.22, 0.3, 1.4);
     if (this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
       this._spawnEnemy();
-      // burst spawns at higher waves → more enemies on screen
-      if (this.wave >= 4 && Math.random() < 0.4) this._spawnEnemy();
-      if (this.wave >= 8 && Math.random() < 0.4) this._spawnEnemy();
+      for (let i = 0; i < Math.min(tier, 3); i++) {
+        if (Math.random() < 0.5) this._spawnEnemy();
+      }
     }
     this.waveTimer += dt;
     if (this.waveTimer > 18) {
@@ -378,11 +403,11 @@ export class Engine {
       this._emit();
     }
 
-    // enemy fire scales with wave: faster bullets, shorter cooldown, more
-    // bullets per shot (spread burst)
-    const bulletSpeed = Math.min(220 + this.wave * 18, 520);
-    const shots = Math.min(1 + Math.floor(this.wave / 4), 3);
-    const fireBase = clamp(2.4 - this.wave * 0.13, 0.6, 2.4);
+    // enemy fire steps up each tier: faster bullets, shorter cooldown, one
+    // extra bullet per shot (spread burst)
+    const bulletSpeed = Math.min(220 + tier * 60, 560);
+    const shots = Math.min(1 + tier, 5);
+    const fireBase = clamp(2.4 - tier * 0.35, 0.5, 2.4);
 
     // enemies
     for (const e of this.enemies) {
@@ -436,6 +461,7 @@ export class Engine {
   }
 
   _spawnEnemy() {
+    const tier = Math.floor((this.wave - 1) / 3);
     const tough = Math.random() < clamp(0.12 + this.wave * 0.03, 0, 0.5);
     this.enemies.push({
       x: rand(30, this.W - 30),
@@ -446,7 +472,7 @@ export class Engine {
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
       maxHp: tough ? 3 : 1,
-      canShoot: Math.random() < clamp(0.25 + this.wave * 0.05, 0, 0.85),
+      canShoot: Math.random() < clamp(0.25 + tier * 0.15, 0, 0.9),
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
     });
@@ -502,12 +528,15 @@ export class Engine {
       p.shield = 0;
       p.invuln = 1;
       this.shake = 0.18;
+      this.hurt = 0.25; // light cyan zap on a shield block
       this._spark(p.x, p.y, COLORS.power, 14);
       return;
     }
     this.lives -= 1;
     p.invuln = 1.4;
-    this.shake = 0.3;
+    this.shake = 0.32;
+    this.hurt = 0.5; // red zap flash
+    this.freeze = 0.12; // brief hitstop
     this._explode(p.x, p.y, p.r);
     this._emit();
     if (this.lives <= 0) {
@@ -655,6 +684,7 @@ export class Engine {
     if (this.player) this._drawPlayer();
 
     ctx.restore();
+    this._drawHurt();
   }
 
   _drawPlayer() {
@@ -930,6 +960,32 @@ export class Engine {
       }
     }
 
+    ctx.restore();
+    this._drawHurt();
+  }
+
+  /* ── damage feedback: red zap + frost vignette over the screen ───── */
+  _drawHurt() {
+    if (this.hurt <= 0) return;
+    const ctx = this.ctx;
+    const k = Math.min(1, this.hurt / 0.5); // 1 → 0
+    ctx.save();
+    // red zap flash
+    ctx.fillStyle = `rgba(220,38,38,${0.42 * k})`;
+    ctx.fillRect(0, 0, this.W, this.H);
+    // frost vignette (the "frozen" feel)
+    const g = ctx.createRadialGradient(
+      this.W / 2,
+      this.H / 2,
+      Math.min(this.W, this.H) * 0.28,
+      this.W / 2,
+      this.H / 2,
+      Math.max(this.W, this.H) * 0.72
+    );
+    g.addColorStop(0, "rgba(125,211,252,0)");
+    g.addColorStop(1, `rgba(125,211,252,${0.55 * k})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.W, this.H);
     ctx.restore();
   }
 
