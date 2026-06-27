@@ -203,11 +203,8 @@ function createRequestHandler(DIST) {
         return res.end();
       }
       if (req.method === "GET") {
-        // diagnostics: where is the board stored, is the env var present, and
-        // (if Postgres failed) what was the error?
+        // benign health signal: permanent DB vs ephemeral file (no secrets)
         res.setHeader("X-Leaderboard-Store", pgPool ? "postgres" : "file");
-        res.setHeader("X-Leaderboard-Db-Url-Set", DATABASE_URL ? "yes" : "no");
-        if (lbInitError) res.setHeader("X-Leaderboard-Db-Error", lbInitError.slice(0, 180));
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify(leaderboard));
       }
