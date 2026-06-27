@@ -1124,40 +1124,14 @@ function BallDevil() {
       ctx.beginPath();
       ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
       ctx.stroke();
-      // angry glowing eyes
-      ctx.shadowColor = "#ffcc33";
-      ctx.shadowBlur = 12;
-      ctx.fillStyle = `rgba(255,220,90,${0.65 + pulse * 0.35})`;
-      ctx.save();
-      ctx.translate(-16, -6);
-      ctx.rotate(0.32);
+      // inner molten core glow (no face — just a menacing orb)
+      const core = ctx.createRadialGradient(0, 0, 2, 0, 0, R * 0.6);
+      core.addColorStop(0, `rgba(255,180,90,${0.35 + pulse * 0.3})`);
+      core.addColorStop(1, "rgba(255,120,60,0)");
+      ctx.fillStyle = core;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+      ctx.arc(0, 0, R * 0.6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
-      ctx.save();
-      ctx.translate(16, -6);
-      ctx.rotate(-0.32);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#3a0a00";
-      ctx.beginPath();
-      ctx.arc(-15, -5, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(15, -5, 3, 0, Math.PI * 2);
-      ctx.fill();
-      // jagged grin
-      ctx.strokeStyle = "#2a0008";
-      ctx.lineWidth = 3;
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(-24, 15);
-      [-15, -7, 0, 7, 15, 24].forEach((x, i) => ctx.lineTo(x, i % 2 ? 22 : 15));
-      ctx.stroke();
       ctx.restore();
 
       raf = requestAnimationFrame(draw);
@@ -1209,11 +1183,11 @@ function VillainSequence({ onStart, onDone }) {
     return () => clearTimeout(id);
   }, [phase, count]);
 
-  // "go": full battle begins, then unmount after START! flashes + devil fades
+  // "go": full battle begins, then unmount after the orb flies up & away
   useEffect(() => {
     if (phase !== "go") return;
     onStart();
-    const id = setTimeout(onDone, 1200);
+    const id = setTimeout(onDone, 1350);
     return () => clearTimeout(id);
   }, [phase, onStart, onDone]);
 
