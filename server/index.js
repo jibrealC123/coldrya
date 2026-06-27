@@ -62,12 +62,43 @@ const cleanCountry = (v) =>
      ephemeral on a free host).
    An in-memory mirror is the source for GET responses (fast, no DB hit per
    request); it's loaded at startup and refreshed on every submit. */
-const LB_MAX = 10;
+const LB_MAX = 10; // entries shown on the board
+const LB_KEEP = 200; // rows retained in the DB (bounded → table can't grow forever)
 const LB_FILE = process.env.LEADERBOARD_FILE || path.join(__dirname, "leaderboard.json");
 const MAX_SCORE = 5_000_000; // clamp absurd/forged values
 const DATABASE_URL = process.env.DATABASE_URL;
 let leaderboard = [];
 let pgPool = null;
+
+// Best-effort per-IP throttle for score submissions (the HTTP POST has no
+// other limiter; behind the proxy we use the leftmost X-Forwarded-For).
+const LB_POST_WINDOW = 10_000; // ms
+const LB_POST_MAX = 6; // submissions per window per IP
+const lbPostHits = new Map(); // ip -> [timestamps]
+function lbRateLimited(ip) {
+  const now = Date.now();
+  let arr = lbPostHits.get(ip);
+  if (!arr) {
+    arr = [];
+    lbPostHits.set(ip, arr);
+  }
+  while (arr.length && now - arr[0] > LB_POST_WINDOW) arr.shift();
+  if (lbPostHits.size > 5000) {
+    // opportunistic cleanup so the throttle map itself can't leak memory
+    for (const [k, v] of lbPostHits) {
+      while (v.length && now - v[0] > LB_POST_WINDOW) v.shift();
+      if (!v.length) lbPostHits.delete(k);
+    }
+  }
+  if (arr.length >= LB_POST_MAX) return true;
+  arr.push(now);
+  return false;
+}
+function clientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (xff) return String(xff).split(",")[0].trim().slice(0, 64);
+  return (req.socket.remoteAddress || "unknown").slice(0, 64);
+}
 
 function pushToMirror(entry) {
   leaderboard.push(entry);
@@ -141,6 +172,11 @@ async function addLeaderboardScore(name, country, score) {
         entry.score,
         entry.ts,
       ]);
+      // prune to the top LB_KEEP so the table stays bounded forever
+      await pgPool.query(
+        "DELETE FROM scores WHERE id NOT IN (SELECT id FROM scores ORDER BY score DESC, ts ASC LIMIT $1)",
+        [LB_KEEP]
+      );
       leaderboard = await queryTopFromDb();
       return leaderboard;
     } catch (e) {
@@ -207,6 +243,10 @@ function createRequestHandler(DIST) {
         return res.end(JSON.stringify(leaderboard));
       }
       if (req.method === "POST") {
+        if (lbRateLimited(clientIp(req))) {
+          res.writeHead(429, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify(leaderboard));
+        }
         let body = "";
         let tooBig = false;
         req.on("data", (chunk) => {
