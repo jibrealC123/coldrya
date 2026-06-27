@@ -32,17 +32,32 @@ function ShipPip() {
   );
 }
 
-// Country flag with a graceful fallback: if the image ever fails to load
-// (bad code, flagcdn down), show a neutral box instead of a broken-image icon.
+// Country flag that survives flaky networks: a transient load failure is
+// retried a few times (remounting the <img>) before giving up; on a new
+// country it starts fresh. If it ultimately can't load, it shows the 2-letter
+// country code in a neutral box instead of a broken-image icon.
 function Flag({ code, w = 40, className }) {
-  const [broken, setBroken] = useState(false);
-  if (broken) return <span className={`flag-fallback ${className || ""}`} aria-hidden="true" />;
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    setTries(0); // new country / size → fresh attempts
+  }, [code, w]);
+  const cc = String(code || "").toUpperCase().slice(0, 2);
+  if (tries >= 3) {
+    return (
+      <span className={`flag-fallback ${className || ""}`.trim()} aria-hidden="true">
+        {cc}
+      </span>
+    );
+  }
   return (
     <img
+      key={tries}
       src={flagUrl(code, w)}
       alt=""
       className={className}
-      onError={() => setBroken(true)}
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setTimeout(() => setTries((t) => t + 1), 400)}
     />
   );
 }

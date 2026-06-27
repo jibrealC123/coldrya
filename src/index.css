@@ -877,12 +877,20 @@ kbd {
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
-/* shown only if a flag image fails — a neutral box, never a broken icon */
+/* shown only if a flag image truly can't load — a neutral box with the
+   2-letter country code, never a broken-image icon */
 .flag-fallback {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #1e293b;
   border: 1px solid rgba(255, 255, 255, 0.2);
   flex: none;
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
 }
 .lobby-name {
   font-family: var(--font-term);

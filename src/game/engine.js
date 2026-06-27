@@ -1102,10 +1102,9 @@ export class Engine {
     ctx.translate(this.view.ox + sx, this.view.oy + sy);
     ctx.scale(this.view.scale, this.view.scale);
 
-    // arena border
-    ctx.strokeStyle = "rgba(96,165,250,0.18)";
-    ctx.lineWidth = 2 / this.view.scale;
-    ctx.strokeRect(0, 0, this.world.w, this.world.h);
+    // NOTE: the play-area boundary is intentionally NOT drawn. Showing the
+    // collision/arena outline (especially as letterbox bars in fullscreen)
+    // breaks immersion — standard 2D practice keeps the boundary invisible.
 
     const snap = this.snap;
     if (snap) {
