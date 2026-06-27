@@ -392,8 +392,8 @@ body {
   background: radial-gradient(ellipse at center, rgba(10, 6, 12, 0.95), rgba(3, 2, 6, 0.99));
   cursor: pointer;
   overflow: hidden;
-  justify-content: flex-end;
-  padding-bottom: 8vh;
+  /* stack the box + hint and keep them centered (inherits centering from .overlay) */
+  flex-direction: column;
 }
 .story-overlay::before {
   content: "";
@@ -482,11 +482,12 @@ body {
 .story-hint {
   position: relative;
   z-index: 1;
-  margin-top: 14px;
+  margin-top: 20px;
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 1px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 0 10px rgba(220, 38, 38, 0.55);
   animation: pulse 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
