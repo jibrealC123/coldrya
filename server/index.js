@@ -369,6 +369,9 @@ function getRoom(code) {
       startedAt: 0, // ms timestamp of START (drives the calm warm-up)
       hostId: null,
       chat: [], // recent chat messages (last LB-ish few, for late joiners)
+      lightning: [], // active storm bolts
+      storm: null, // active lightning storm
+      lightningTimer: 1e9, // armed after wave 4, then every 3 min
     };
     rooms.set(code, room);
   }
@@ -380,6 +383,9 @@ function resetRoom(room) {
   room.pbullets = [];
   room.ebullets = [];
   room.powerups = [];
+  room.lightning = [];
+  room.storm = null;
+  room.lightningTimer = 1e9;
   room.wave = 1;
   room.waveTimer = 0;
   room.spawnTimer = 0;
@@ -436,6 +442,54 @@ function spawnEnemy(room, intensity = 1) {
   });
 }
 
+/* ── The Gus's lightning storm (authoritative) ────────────────────────── */
+function startStorm(room) {
+  const hard = room.wave >= 10; // wave 10+ → stronger, harder to dodge
+  room.storm = { t: 0, duration: hard ? 7 : 5, spawnCd: 0.4, hard };
+  room.enemies = []; // enemies vanish for the storm
+  room.ebullets = [];
+}
+function spawnBolt(room, hard) {
+  room.lightning.push({
+    x: rand(40, WORLD.w - 40),
+    t: 0,
+    warn: hard ? 0.5 : 0.85, // shorter telegraph = harder
+    strike: 0.32,
+    half: hard ? 26 : 22,
+    seed: (Math.random() * 1e6) | 0,
+  });
+}
+function updateLightning(room, dt) {
+  if (room.wave > 4 && room.lightningTimer > 1e8) room.lightningTimer = 18; // first one ~18s after wave 4
+  if (room.storm) {
+    room.storm.t += dt;
+    room.storm.spawnCd -= dt;
+    const hard = room.storm.hard;
+    if (room.storm.spawnCd <= 0 && room.storm.t < room.storm.duration - 0.8) {
+      room.storm.spawnCd = hard ? rand(0.32, 0.6) : rand(0.85, 1.25);
+      const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.35 ? 1 : 0);
+      for (let i = 0; i < n; i++) spawnBolt(room, hard);
+    }
+    if (room.storm.t >= room.storm.duration && room.lightning.length === 0) {
+      room.storm = null; // enemies return
+      room.lightningTimer = 180; // next storm in 3 min
+    }
+  } else if (room.wave > 4) {
+    room.lightningTimer -= dt;
+    if (room.lightningTimer <= 0) startStorm(room);
+  }
+  // advance bolts; a strike zaps any pilot sharing its column
+  room.lightning = room.lightning.filter((b) => {
+    b.t += dt;
+    if (b.t >= b.warn && b.t < b.warn + b.strike) {
+      for (const p of room.players.values()) {
+        if (p.alive && p.invuln <= 0 && Math.abs(p.x - b.x) < b.half) hitPlayer(p);
+      }
+    }
+    return b.t < b.warn + b.strike + 0.18;
+  });
+}
+
 function nearestAlive(room, x, y) {
   let best = null;
   let bd = Infinity;
@@ -464,11 +518,16 @@ function tick(room, dt) {
   // calm warm-up dampens everything for the first 3 min (1.0 = full pace)
   const intensity = roundIntensity(room);
 
+  // The Gus's lightning storm (after wave 4). During a storm the enemies
+  // vanish and pilots only dodge bolts; they return when it ends.
+  if (!room.over) updateLightning(room, dt);
+
   if (!room.over) {
     // spawning — dense from wave 1, denser each tier, with burst spawns
+    // (paused while a lightning storm is raging)
     room.spawnTimer -= dt;
     const interval = clamp(0.8 - tier * 0.16, 0.28, 0.8) / intensity; // calm → longer gaps
-    if (room.spawnTimer <= 0 && aliveCount > 0) {
+    if (!room.storm && room.spawnTimer <= 0 && aliveCount > 0) {
       room.spawnTimer = interval;
       spawnEnemy(room, intensity);
       for (let i = 0; i < 1 + tier; i++) {
@@ -661,6 +720,8 @@ function snapshot(room) {
     pb: room.pbullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
     eb: room.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
     pw: room.powerups.map((p) => [Math.round(p.x), Math.round(p.y), p.type]),
+    // lightning bolts: [x, t, warn, strike, half, seed]
+    lt: room.lightning.map((b) => [Math.round(b.x), +b.t.toFixed(2), b.warn, b.strike, b.half, b.seed]),
   };
 }
 

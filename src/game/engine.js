@@ -955,7 +955,7 @@ export class Engine {
     }
 
     // lightning storm bolts
-    if (this.lightning && this.lightning.length) this._drawLightning(this.H);
+    if (this.lightning && this.lightning.length) this._drawLightning(this.lightning, this.H);
 
     // player
     if (this.player) this._drawPlayer();
@@ -966,10 +966,10 @@ export class Engine {
 
   // Pixel-art purple lightning: a telegraph line, then a jagged bolt that
   // flickers each frame. `worldH` is the column height in the active transform.
-  _drawLightning(worldH) {
+  _drawLightning(bolts, worldH) {
     const ctx = this.ctx;
     const PS = 6;
-    for (const b of this.lightning) {
+    for (const b of bolts) {
       const warning = b.t < b.warn;
       if (warning) {
         // telegraph: a thin flickering purple beam where the bolt will land
@@ -1301,6 +1301,12 @@ export class Engine {
       for (const e of snap.enemies) {
         const v = this.enemyView.get(e.id) || e;
         this._drawEnemy({ x: v.x, y: v.y, r: e.r, hp: e.hp, maxHp: e.mh });
+      }
+
+      // lightning storm bolts (from the snapshot: [x, t, warn, strike, half, seed])
+      if (snap.lt && snap.lt.length) {
+        const bolts = snap.lt.map((b) => ({ x: b[0], t: b[1], warn: b[2], strike: b[3], half: b[4], seed: b[5] }));
+        this._drawLightning(bolts, this.world.h);
       }
 
       // remote players
