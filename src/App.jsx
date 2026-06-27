@@ -175,8 +175,8 @@ export default function App() {
   const [hostId, setHostId] = useState(null); // current room host's player id
   const [chat, setChat] = useState([]); // co-op chat messages
   const [intro, setIntro] = useState(false); // personalized welcome before play
-  const [story, setStory] = useState(false); // villain story cutscene before the ships appear
-  const pendingStartRef = useRef(null); // deferred game-start, fired after the story
+  const [villain, setVillain] = useState(false); // Void King fades in + talks during play
+  const pendingStartRef = useRef(null); // deferred game-start, fired on "OK!"
   const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
@@ -287,24 +287,23 @@ export default function App() {
     setIntro(true);
   }, [pilot]);
 
-  // welcome OK → play the villain story cutscene (ships stay hidden)
+  // welcome OK → start the round AND fade the Void King into the space so he
+  // taunts the pilot while they're already flying ("story while playing")
   const beginGame = useCallback(() => {
     setIntro(false);
-    setStory(true);
-  }, []);
-
-  // villain finishes → the ships appear and the round actually begins
-  const finishStory = useCallback(() => {
-    setStory(false);
     const start = pendingStartRef.current;
     pendingStartRef.current = null;
-    start?.();
+    start?.(); // ships appear, the pilot can fly immediately
+    setVillain(true); // Void King materializes + talks over the live game
   }, []);
+
+  // villain finished his lines → fade him out
+  const endVillain = useCallback(() => setVillain(false), []);
 
   // quit a solo run back to the menu
   const quitToMenu = useCallback(() => {
     setIntro(false);
-    setStory(false);
+    setVillain(false);
     pendingStartRef.current = null;
     engineRef.current?.quitToMenu();
   }, []);
@@ -418,7 +417,7 @@ export default function App() {
     setHostId(null);
     setChat([]);
     setIntro(false);
-    setStory(false);
+    setVillain(false);
     pendingStartRef.current = null;
     setDenyReason("");
     rosterKeyRef.current = "";
@@ -429,7 +428,7 @@ export default function App() {
   // back out of the intro: solo → reveal the menu; co-op → leave the room
   const returnToLobby = useCallback(() => {
     setIntro(false);
-    setStory(false);
+    setVillain(false);
     pendingStartRef.current = null;
     if (mode === "coop") leaveCoop();
     else engineRef.current?.quitToMenu();
@@ -479,8 +478,8 @@ export default function App() {
         <Intro name={pilot.username} mode={mode} onOk={beginGame} onReturn={returnToLobby} />
       )}
 
-      {/* Villain story cutscene — ships stay hidden until it finishes */}
-      {story && <StoryIntro onDone={finishStory} />}
+      {/* The Void King fades into the space and taunts you mid-flight */}
+      {villain && <VillainSequence onDone={endVillain} />}
 
 
       {/* HUD */}
@@ -1028,100 +1027,117 @@ function Intro({ name, mode, onOk, onReturn }) {
   );
 }
 
-// ── Villain story cutscene ────────────────────────────────────────────
-// Placeholder villain identity + lines — swap VILLAIN_NAME / <VillainPortrait>
-// (and these lines) when the character design arrives. The last line is the
-// one the user specified verbatim.
-const VILLAIN_NAME = "???";
+// ── The Void King ─────────────────────────────────────────────────────
+const VILLAIN_NAME = "THE VOID KING";
 const VILLAIN_LINES = [
-  "So… another pilot dares to drift into ColdRya's skies.",
-  "These stars are MINE. That little ship won't change a thing.",
+  "So… a new spark dares to flicker in MY void.",
+  "These dead stars are my throne, little ship.",
   "Hehe… you may see me once again after some waves….",
 ];
 
-// Placeholder villain portrait (a menacing silhouette) — replace with the
-// real character art (e.g. an <img>) once it's ready.
-function VillainPortrait() {
-  return (
-    <svg viewBox="0 0 64 64" className="villain-svg" aria-hidden="true">
-      <defs>
-        <radialGradient id="vglow" cx="50%" cy="42%" r="60%">
-          <stop offset="0%" stopColor="#3b0a0a" />
-          <stop offset="100%" stopColor="#0a0608" />
-        </radialGradient>
-      </defs>
-      <rect width="64" height="64" fill="url(#vglow)" />
-      {/* hooded head silhouette */}
-      <path d="M32 8 C18 8 12 22 13 38 C14 52 22 58 32 58 C42 58 50 52 51 38 C52 22 46 8 32 8 Z" fill="#15090e" />
-      <path d="M32 6 C16 6 9 20 12 36 L18 30 C17 20 23 14 32 14 C41 14 47 20 46 30 L52 36 C55 20 48 6 32 6 Z" fill="#241016" />
-      {/* glowing eyes */}
-      <ellipse cx="24" cy="34" rx="4.5" ry="3" fill="#ff2030" />
-      <ellipse cx="40" cy="34" rx="4.5" ry="3" fill="#ff2030" />
-      <ellipse cx="24" cy="34" rx="2" ry="1.4" fill="#ffd0d0" />
-      <ellipse cx="40" cy="34" rx="2" ry="1.4" fill="#ffd0d0" />
-      {/* grin */}
-      <path d="M22 44 Q32 52 42 44" stroke="#7a1020" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-    </svg>
-  );
+// Pixel-art Void King (from the character design) drawn once to a canvas —
+// a dark figure with a void aura and a grinning maw. Faded into the space.
+function VoidKing() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const cvs = ref.current;
+    if (!cvs) return;
+    const S = 3;
+    const GW = 128;
+    const GH = 170;
+    cvs.width = GW * S;
+    cvs.height = GH * S;
+    const ctx = cvs.getContext("2d");
+    const f = (x, y, w, h, c) => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x * S, y * S, w * S, h * S);
+    };
+    const disk = (cx, cy, r, c) => {
+      ctx.fillStyle = c;
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++)
+          if (dx * dx + dy * dy <= r * r) ctx.fillRect((cx + dx) * S, (cy + dy) * S, S, S);
+    };
+    const D = "#1a1640"; // body (lifted a touch so it reads against deep space)
+    const GD = "#060210"; // grin frame
+    const TH = "#f0f0ea"; // teeth
+    // head + neck
+    disk(64, 13, 11, D);
+    f(61, 24, 6, 6, D);
+    // shoulder cap
+    f(50, 30, 28, 1, D);
+    f(46, 31, 36, 1, D);
+    f(42, 32, 44, 1, D);
+    f(40, 33, 48, 3, D);
+    // torso / waist / hips
+    f(52, 36, 24, 24, D);
+    f(54, 60, 20, 6, D);
+    f(51, 66, 26, 7, D);
+    // arms
+    f(40, 36, 9, 24, D);
+    f(42, 60, 8, 20, D);
+    disk(46, 81, 5, D);
+    f(79, 36, 9, 24, D);
+    f(78, 60, 8, 20, D);
+    disk(82, 81, 5, D);
+    // legs + feet
+    f(51, 73, 12, 30, D);
+    f(65, 73, 12, 30, D);
+    f(52, 103, 11, 24, D);
+    f(65, 103, 11, 24, D);
+    f(46, 127, 18, 5, D);
+    f(65, 127, 18, 5, D);
+    // grin
+    f(55, 18, 18, 1, GD);
+    f(56, 19, 16, 1, TH);
+    [59, 63, 67, 71].forEach((x) => f(x, 19, 1, 1, GD));
+    f(57, 20, 14, 1, GD);
+    f(58, 21, 12, 1, TH);
+    [61, 65, 68].forEach((x) => f(x, 21, 1, 1, GD));
+    f(59, 22, 9, 1, GD);
+  }, []);
+  return <canvas ref={ref} className="voidking-canvas" aria-hidden="true" />;
 }
 
-function StoryIntro({ onDone }) {
+// Plays over the LIVE game: the Void King fades in, taunts via subtitles that
+// auto-advance, then fades out — the pilot keeps flying the whole time.
+function VillainSequence({ onDone }) {
   const [line, setLine] = useState(0);
   const [chars, setChars] = useState(0);
+  const [out, setOut] = useState(false);
   const text = VILLAIN_LINES[line];
-  const last = line >= VILLAIN_LINES.length - 1;
-  const typing = chars < text.length;
 
-  // typewriter reveal
+  // typewriter for the current line
   useEffect(() => {
     setChars(0);
     const id = setInterval(() => {
-      setChars((c) => {
-        if (c >= text.length) {
-          clearInterval(id);
-          return c;
-        }
-        return c + 1;
-      });
-    }, 38);
+      setChars((c) => (c >= text.length ? c : c + 1));
+    }, 42);
     return () => clearInterval(id);
   }, [line, text]);
 
-  const advance = () => {
-    if (typing) {
-      setChars(text.length); // finish the line instantly
-    } else if (!last) {
-      setLine((l) => l + 1);
-    } else {
-      onDone(); // ships appear, battle begins
-    }
-  };
+  // auto-advance once the line finishes typing (no clicking — you're flying)
+  useEffect(() => {
+    if (chars < text.length) return;
+    const hold = setTimeout(() => {
+      if (line < VILLAIN_LINES.length - 1) {
+        setLine((l) => l + 1);
+      } else {
+        setOut(true); // fade the king back into the void
+        setTimeout(onDone, 1300);
+      }
+    }, 2400);
+    return () => clearTimeout(hold);
+  }, [chars, text, line, onDone]);
 
   return (
-    <div className="overlay story-overlay" onClick={advance}>
-      <button
-        className="story-skip"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDone();
-        }}
-      >
-        SKIP ▶
-      </button>
-      <div className="story-box">
-        <div className="villain-portrait">
-          <VillainPortrait />
-        </div>
-        <div className="story-text">
-          <div className="story-name">{VILLAIN_NAME}</div>
-          <p className="story-line">
-            {text.slice(0, chars)}
-            <span className="story-caret">▌</span>
-          </p>
-        </div>
+    <div className={`villain-seq${out ? " out" : ""}`} aria-hidden="true">
+      <div className="voidking-wrap">
+        <VoidKing />
       </div>
-      <div className="story-hint">
-        {typing ? "click to reveal" : last ? "click to begin the battle ▶" : "click to continue ▶"}
+      <div className="villain-sub">
+        <span className="villain-sub-name">{VILLAIN_NAME}</span>
+        <span className="villain-sub-text">{text.slice(0, chars)}</span>
       </div>
     </div>
   );
