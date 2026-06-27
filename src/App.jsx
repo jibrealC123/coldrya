@@ -417,6 +417,14 @@ export default function App() {
     engineRef.current?.leaveMultiplayer();
   }, []);
 
+  // back out of the intro: solo → reveal the menu; co-op → leave the room
+  const returnToLobby = useCallback(() => {
+    setIntro(false);
+    pendingStartRef.current = null;
+    if (mode === "coop") leaveCoop();
+    else engineRef.current?.quitToMenu();
+  }, [mode, leaveCoop]);
+
   const playAgain = useCallback(() => {
     if (mode === "coop") engineRef.current?.restartMultiplayer();
     else engineRef.current?.startGame(pilot);
@@ -457,7 +465,9 @@ export default function App() {
       <UpdateOverlay update={update} onDismiss={() => setUpdate(null)} />
 
       {/* Personalized welcome — shown when gameplay starts (not the lobby) */}
-      {intro && pilot && <Intro name={pilot.username} mode={mode} onOk={beginGame} />}
+      {intro && pilot && (
+        <Intro name={pilot.username} mode={mode} onOk={beginGame} onReturn={returnToLobby} />
+      )}
 
 
       {/* HUD */}
@@ -968,7 +978,7 @@ function Overlay({ children, className = "" }) {
 
 // Personalized welcome shown as gameplay begins — a slow "magic" fade-in over
 // a drifting pixel field. The round is held until the pilot clicks OK!.
-function Intro({ name, mode, onOk }) {
+function Intro({ name, mode, onOk, onReturn }) {
   return (
     <div className="overlay intro-overlay">
       <div className="intro-content">
@@ -993,9 +1003,14 @@ function Intro({ name, mode, onOk }) {
           )}
           {mode === "coop" && <p className="intro-coop">Survive the waves together — good luck, pilot!</p>}
         </div>
-        <button className="btn btn-primary intro-ok" onClick={onOk} autoFocus>
-          OK!
-        </button>
+        <div className="intro-actions">
+          <button className="btn btn-primary intro-ok" onClick={onOk} autoFocus>
+            OK!
+          </button>
+          <button className="btn btn-ghost intro-back" onClick={onReturn}>
+            RETURN TO LOBBY
+          </button>
+        </div>
       </div>
     </div>
   );
