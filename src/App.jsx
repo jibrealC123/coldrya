@@ -175,7 +175,8 @@ export default function App() {
   const [hostId, setHostId] = useState(null); // current room host's player id
   const [chat, setChat] = useState([]); // co-op chat messages
   const [intro, setIntro] = useState(false); // personalized welcome before play
-  const pendingStartRef = useRef(null); // deferred game-start, fired on "OK!"
+  const [story, setStory] = useState(false); // villain story cutscene before the ships appear
+  const pendingStartRef = useRef(null); // deferred game-start, fired after the story
   const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
@@ -286,9 +287,15 @@ export default function App() {
     setIntro(true);
   }, [pilot]);
 
-  // dismiss the intro and actually begin the round (solo or co-op)
+  // welcome OK → play the villain story cutscene (ships stay hidden)
   const beginGame = useCallback(() => {
     setIntro(false);
+    setStory(true);
+  }, []);
+
+  // villain finishes → the ships appear and the round actually begins
+  const finishStory = useCallback(() => {
+    setStory(false);
     const start = pendingStartRef.current;
     pendingStartRef.current = null;
     start?.();
@@ -297,6 +304,7 @@ export default function App() {
   // quit a solo run back to the menu
   const quitToMenu = useCallback(() => {
     setIntro(false);
+    setStory(false);
     pendingStartRef.current = null;
     engineRef.current?.quitToMenu();
   }, []);
@@ -410,6 +418,7 @@ export default function App() {
     setHostId(null);
     setChat([]);
     setIntro(false);
+    setStory(false);
     pendingStartRef.current = null;
     setDenyReason("");
     rosterKeyRef.current = "";
@@ -420,6 +429,7 @@ export default function App() {
   // back out of the intro: solo → reveal the menu; co-op → leave the room
   const returnToLobby = useCallback(() => {
     setIntro(false);
+    setStory(false);
     pendingStartRef.current = null;
     if (mode === "coop") leaveCoop();
     else engineRef.current?.quitToMenu();
@@ -468,6 +478,9 @@ export default function App() {
       {intro && pilot && (
         <Intro name={pilot.username} mode={mode} onOk={beginGame} onReturn={returnToLobby} />
       )}
+
+      {/* Villain story cutscene — ships stay hidden until it finishes */}
+      {story && <StoryIntro onDone={finishStory} />}
 
 
       {/* HUD */}
@@ -1010,6 +1023,105 @@ function Intro({ name, mode, onOk, onReturn }) {
             RETURN TO LOBBY
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Villain story cutscene ────────────────────────────────────────────
+// Placeholder villain identity + lines — swap VILLAIN_NAME / <VillainPortrait>
+// (and these lines) when the character design arrives. The last line is the
+// one the user specified verbatim.
+const VILLAIN_NAME = "???";
+const VILLAIN_LINES = [
+  "So… another pilot dares to drift into ColdRya's skies.",
+  "These stars are MINE. That little ship won't change a thing.",
+  "Hehe… you may see me once again after some waves….",
+];
+
+// Placeholder villain portrait (a menacing silhouette) — replace with the
+// real character art (e.g. an <img>) once it's ready.
+function VillainPortrait() {
+  return (
+    <svg viewBox="0 0 64 64" className="villain-svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="vglow" cx="50%" cy="42%" r="60%">
+          <stop offset="0%" stopColor="#3b0a0a" />
+          <stop offset="100%" stopColor="#0a0608" />
+        </radialGradient>
+      </defs>
+      <rect width="64" height="64" fill="url(#vglow)" />
+      {/* hooded head silhouette */}
+      <path d="M32 8 C18 8 12 22 13 38 C14 52 22 58 32 58 C42 58 50 52 51 38 C52 22 46 8 32 8 Z" fill="#15090e" />
+      <path d="M32 6 C16 6 9 20 12 36 L18 30 C17 20 23 14 32 14 C41 14 47 20 46 30 L52 36 C55 20 48 6 32 6 Z" fill="#241016" />
+      {/* glowing eyes */}
+      <ellipse cx="24" cy="34" rx="4.5" ry="3" fill="#ff2030" />
+      <ellipse cx="40" cy="34" rx="4.5" ry="3" fill="#ff2030" />
+      <ellipse cx="24" cy="34" rx="2" ry="1.4" fill="#ffd0d0" />
+      <ellipse cx="40" cy="34" rx="2" ry="1.4" fill="#ffd0d0" />
+      {/* grin */}
+      <path d="M22 44 Q32 52 42 44" stroke="#7a1020" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StoryIntro({ onDone }) {
+  const [line, setLine] = useState(0);
+  const [chars, setChars] = useState(0);
+  const text = VILLAIN_LINES[line];
+  const last = line >= VILLAIN_LINES.length - 1;
+  const typing = chars < text.length;
+
+  // typewriter reveal
+  useEffect(() => {
+    setChars(0);
+    const id = setInterval(() => {
+      setChars((c) => {
+        if (c >= text.length) {
+          clearInterval(id);
+          return c;
+        }
+        return c + 1;
+      });
+    }, 38);
+    return () => clearInterval(id);
+  }, [line, text]);
+
+  const advance = () => {
+    if (typing) {
+      setChars(text.length); // finish the line instantly
+    } else if (!last) {
+      setLine((l) => l + 1);
+    } else {
+      onDone(); // ships appear, battle begins
+    }
+  };
+
+  return (
+    <div className="overlay story-overlay" onClick={advance}>
+      <button
+        className="story-skip"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDone();
+        }}
+      >
+        SKIP ▶
+      </button>
+      <div className="story-box">
+        <div className="villain-portrait">
+          <VillainPortrait />
+        </div>
+        <div className="story-text">
+          <div className="story-name">{VILLAIN_NAME}</div>
+          <p className="story-line">
+            {text.slice(0, chars)}
+            <span className="story-caret">▌</span>
+          </p>
+        </div>
+      </div>
+      <div className="story-hint">
+        {typing ? "click to reveal" : last ? "click to begin the battle ▶" : "click to continue ▶"}
       </div>
     </div>
   );
