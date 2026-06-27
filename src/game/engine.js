@@ -8,6 +8,9 @@ const rand = (min, max) => min + Math.random() * (max - min);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // XP needed to reach the next level — mid-slow curve (kept in sync with server)
 const xpForLevel = (level) => 30 + (level - 1) * 20;
+// taking a hit briefly cripples engine speed, then it recovers
+const HIT_SLOW_TIME = 4.5; // seconds slowed after a hit
+const HIT_SLOW_FACTOR = 0.45; // speed multiplier while slowed
 const dist2 = (ax, ay, bx, by) => {
   const dx = ax - bx;
   const dy = ay - by;
@@ -207,6 +210,7 @@ export class Engine {
       triple: 0,
       rapid: 0,
       shield: 0,
+      slow: 0,
     };
     this.bullets = [];
     this.enemyBullets = [];
@@ -246,7 +250,7 @@ export class Engine {
     this.freeze = 0;
     this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
-    this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480 };
+    this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480, slow: 0 };
     this.level = 1;
     this.xp = 0;
     this.xpNext = xpForLevel(1);
@@ -293,6 +297,7 @@ export class Engine {
         this.hurt = 0.5;
         this.freeze = 0.12;
         this.shake = 0.32;
+        if (this.me) this.me.slow = HIT_SLOW_TIME; // crippled engines after a hit
       }
       this.prevMyLives = me.lives;
     }
@@ -523,16 +528,17 @@ export class Engine {
     if (this.keys.has("arrowright") || this.keys.has("d")) dx += 1;
     if (this.keys.has("arrowup") || this.keys.has("w")) dy -= 1;
     if (this.keys.has("arrowdown") || this.keys.has("s")) dy += 1;
+    const slowK = p.slow > 0 ? HIT_SLOW_FACTOR : 1; // crippled engines after a hit
     if (dx || dy) {
       const len = Math.hypot(dx, dy) || 1;
-      p.x += (dx / len) * p.speed * dt;
-      p.y += (dy / len) * p.speed * dt;
+      p.x += (dx / len) * p.speed * slowK * dt;
+      p.y += (dy / len) * p.speed * slowK * dt;
     }
     // movement — pointer (follow when active / hovering)
     if (this.pointer.x != null && (this.pointer.active || this.pointer.y != null)) {
       if (this.pointer.active) {
-        p.x += (this.pointer.x - p.x) * Math.min(1, dt * 12);
-        p.y += (this.pointer.y - p.y) * Math.min(1, dt * 12);
+        p.x += (this.pointer.x - p.x) * Math.min(1, dt * 12 * slowK);
+        p.y += (this.pointer.y - p.y) * Math.min(1, dt * 12 * slowK);
       }
     }
     p.x = clamp(p.x, 18, this.W - 18);
@@ -544,6 +550,7 @@ export class Engine {
     p.triple = Math.max(0, p.triple - dt);
     p.rapid = Math.max(0, p.rapid - dt);
     p.shield = Math.max(0, p.shield - dt);
+    p.slow = Math.max(0, p.slow - dt);
     this.shake = Math.max(0, this.shake - dt);
 
     // firing
@@ -726,6 +733,7 @@ export class Engine {
     }
     this.lives -= 1;
     p.invuln = 1.4;
+    p.slow = HIT_SLOW_TIME; // engines crippled for a few seconds
     this.shake = 0.32;
     this.hurt = 0.5; // red zap flash
     this.freeze = 0.12; // brief hitstop
@@ -1016,16 +1024,18 @@ export class Engine {
     if (this.keys.has("arrowright") || this.keys.has("d")) dx += 1;
     if (this.keys.has("arrowup") || this.keys.has("w")) dy -= 1;
     if (this.keys.has("arrowdown") || this.keys.has("s")) dy += 1;
+    me.slow = Math.max(0, (me.slow || 0) - dt);
+    const slowK = me.slow > 0 ? HIT_SLOW_FACTOR : 1; // crippled engines after a hit
     if (dx || dy) {
       const len = Math.hypot(dx, dy) || 1;
-      me.x += (dx / len) * me.speed * dt;
-      me.y += (dy / len) * me.speed * dt;
+      me.x += (dx / len) * me.speed * slowK * dt;
+      me.y += (dy / len) * me.speed * slowK * dt;
     }
     if (this.pointer.active && this.pointer.x != null) {
       const wx = (this.pointer.x - this.view.ox) / this.view.scale;
       const wy = (this.pointer.y - this.view.oy) / this.view.scale;
-      me.x += (wx - me.x) * Math.min(1, dt * 12);
-      me.y += (wy - me.y) * Math.min(1, dt * 12);
+      me.x += (wx - me.x) * Math.min(1, dt * 12 * slowK);
+      me.y += (wy - me.y) * Math.min(1, dt * 12 * slowK);
     }
     me.x = clamp(me.x, 18, this.world.w - 18);
     me.y = clamp(me.y, 50, this.world.h - 30);

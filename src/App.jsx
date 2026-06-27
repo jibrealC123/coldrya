@@ -174,6 +174,8 @@ export default function App() {
   const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive,ready}
   const [hostId, setHostId] = useState(null); // current room host's player id
   const [chat, setChat] = useState([]); // co-op chat messages
+  const [intro, setIntro] = useState(false); // personalized welcome before play
+  const pendingStartRef = useRef(null); // deferred game-start, fired on "OK!"
   const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
@@ -279,11 +281,23 @@ export default function App() {
 
   const startSolo = useCallback(() => {
     setMode("solo");
-    engineRef.current?.startGame(pilot);
+    // show the personalized intro first; the round starts when they hit OK!
+    pendingStartRef.current = () => engineRef.current?.startGame(pilot);
+    setIntro(true);
   }, [pilot]);
+
+  // dismiss the intro and actually begin the round (solo or co-op)
+  const beginGame = useCallback(() => {
+    setIntro(false);
+    const start = pendingStartRef.current;
+    pendingStartRef.current = null;
+    start?.();
+  }, []);
 
   // quit a solo run back to the menu
   const quitToMenu = useCallback(() => {
+    setIntro(false);
+    pendingStartRef.current = null;
     engineRef.current?.quitToMenu();
   }, []);
 
@@ -319,12 +333,15 @@ export default function App() {
           engineRef.current?.applySnap(snap);
           setPlayerCount(snap.players.length);
           setHostId(snap.hostId);
-          // host pressed START → all clients enter the arena together
+          // host pressed START → all clients enter the arena together. Show
+          // the personalized intro now (in-game entry, NOT the lobby); the
+          // ship comes under control when the pilot hits OK!
           if (snap.started && !startedRef.current) {
             startedRef.current = true;
             clearTimeout(joinTimer.current);
-            engineRef.current?.startMultiplayer(net, pilot);
+            pendingStartRef.current = () => engineRef.current?.startMultiplayer(net, pilot);
             setCoopPhase("live");
+            setIntro(true);
           }
           // only re-render the roster when it actually changes (snapshots are 30Hz)
           const roster = snap.players.map((pl) => ({
@@ -392,6 +409,8 @@ export default function App() {
     setPlayers([]);
     setHostId(null);
     setChat([]);
+    setIntro(false);
+    pendingStartRef.current = null;
     setDenyReason("");
     rosterKeyRef.current = "";
     startedRef.current = false;
@@ -436,6 +455,9 @@ export default function App() {
 
       {/* Desktop auto-update */}
       <UpdateOverlay update={update} onDismiss={() => setUpdate(null)} />
+
+      {/* Personalized welcome — shown when gameplay starts (not the lobby) */}
+      {intro && pilot && <Intro name={pilot.username} mode={mode} onOk={beginGame} />}
 
 
       {/* HUD */}
@@ -777,6 +799,9 @@ function Registration({ initial, onComplete }) {
 
   const cleanName = username.trim();
   const valid = cleanName.length >= 2 && cleanName.length <= 16 && selected;
+  // editing an existing pilot and picking a different callsign starts you over
+  // on the leaderboard (scores are tied to the name)
+  const nameChanged = !!initial?.username && !!cleanName && cleanName !== initial.username;
 
   const submit = (e) => {
     e.preventDefault();
@@ -855,8 +880,18 @@ function Registration({ initial, onComplete }) {
           <p className="field-hint">2–16 characters</p>
         </div>
 
-        <button type="submit" className="btn btn-primary" disabled={!valid}>
-          LAUNCH
+        {nameChanged && (
+          <div className="reg-warning" role="alert">
+            <span className="reg-warning-title">⚠ WARNING</span>
+            Changing your callsign starts you over — your leaderboard scores stay under{" "}
+            <strong>&ldquo;{initial.username}&rdquo;</strong> and won&rsquo;t follow{" "}
+            <strong>&ldquo;{cleanName}&rdquo;</strong>. Only change it if you&rsquo;re willing to lose your
+            standing.
+          </div>
+        )}
+
+        <button type="submit" className={`btn ${nameChanged ? "btn-danger" : "btn-primary"}`} disabled={!valid}>
+          {nameChanged ? "CHANGE CALLSIGN" : "LAUNCH"}
         </button>
       </form>
     </div>
@@ -927,6 +962,41 @@ function Overlay({ children, className = "" }) {
   return (
     <div className={`overlay ${className}`.trim()}>
       <div className="overlay-panel">{children}</div>
+    </div>
+  );
+}
+
+// Personalized welcome shown as gameplay begins — a slow "magic" fade-in over
+// a drifting pixel field. The round is held until the pilot clicks OK!.
+function Intro({ name, mode, onOk }) {
+  return (
+    <div className="overlay intro-overlay">
+      <div className="intro-content">
+        <p className="intro-welcome">WELCOME TO</p>
+        <h1 className="intro-title">
+          COLD<span className="title-accent">RYA</span>&rsquo;S SPACE WAR!
+        </h1>
+        <p className="intro-pilot">
+          PILOT <span className="intro-name">{name}</span>
+        </p>
+        <div className="intro-controls">
+          <p>
+            <span className="ik">MOVE</span> — Arrow keys or <span className="ik">W A S D</span>
+          </p>
+          <p>
+            <span className="ik">FIRE</span> — Hold <span className="ik">SPACE</span> (or tap &amp; drag)
+          </p>
+          {mode === "solo" && (
+            <p>
+              <span className="ik">PAUSE</span> — <span className="ik">P</span> / <span className="ik">ESC</span>
+            </p>
+          )}
+          {mode === "coop" && <p className="intro-coop">Survive the waves together — good luck, pilot!</p>}
+        </div>
+        <button className="btn btn-primary intro-ok" onClick={onOk} autoFocus>
+          OK!
+        </button>
+      </div>
     </div>
   );
 }
