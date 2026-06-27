@@ -722,7 +722,6 @@ export default function App() {
                 change pilot
               </button>
               {high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>}
-              <Controls />
             </div>
 
             {leaderboard.length > 0 && (
@@ -1016,26 +1015,3 @@ function Intro({ name, mode, onOk, onReturn }) {
   );
 }
 
-function Controls() {
-  return (
-    <div className="controls">
-      <div className="control-row">
-        <kbd>W A S D</kbd>
-        <kbd>↑ ← ↓ →</kbd>
-        <span>move</span>
-      </div>
-      <div className="control-row">
-        <kbd>SPACE</kbd>
-        <span>fire</span>
-      </div>
-      <div className="control-row">
-        <kbd>P</kbd>
-        <kbd>ESC</kbd>
-        <span>pause (solo)</span>
-      </div>
-      <div className="control-row">
-        <span className="hint">or tap &amp; drag to fly + auto-fire</span>
-      </div>
-    </div>
-  );
-}
