@@ -36,3 +36,7 @@ release
 *.mobileprovision
 *.cer
 *.certSigningRequest
+
+# server runtime data
+server/leaderboard.json
+leaderboard.json

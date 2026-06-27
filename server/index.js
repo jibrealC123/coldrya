@@ -54,6 +54,39 @@ const cleanName = (v) => {
 const cleanCountry = (v) =>
   (String(v ?? 'us').toLowerCase().match(/[a-z]/g) || ['u', 's']).join('').slice(0, 2) || 'us';
 
+/* ── global leaderboard (shared across all players) ──────────────────────
+   Top scores live on the cloud server so everyone sees the same board. It's
+   persisted to a JSON file next to the server; on a free host the file may
+   reset on redeploy/cold-start, but it's shared in real time while warm. */
+const LB_MAX = 10;
+const LB_FILE = process.env.LEADERBOARD_FILE || path.join(__dirname, "leaderboard.json");
+const MAX_SCORE = 5_000_000; // clamp absurd/forged values
+let leaderboard = [];
+try {
+  const raw = JSON.parse(fs.readFileSync(LB_FILE, "utf8"));
+  if (Array.isArray(raw)) leaderboard = raw.filter((e) => e && typeof e.score === "number");
+} catch {
+  /* no file yet */
+}
+let lbSaveTimer = null;
+function saveLeaderboard() {
+  // debounce disk writes so a burst of submissions doesn't thrash the FS
+  if (lbSaveTimer) return;
+  lbSaveTimer = setTimeout(() => {
+    lbSaveTimer = null;
+    fs.writeFile(LB_FILE, JSON.stringify(leaderboard), () => {});
+  }, 1000);
+}
+function addLeaderboardScore(name, country, score) {
+  const s = Math.floor(clamp(Number(score) || 0, 0, MAX_SCORE));
+  if (s <= 0) return leaderboard;
+  leaderboard.push({ name: cleanName(name), country: cleanCountry(country), score: s, ts: Date.now() });
+  leaderboard.sort((a, b) => b.score - a.score);
+  leaderboard = leaderboard.slice(0, LB_MAX);
+  saveLeaderboard();
+  return leaderboard;
+}
+
 /* ── static file server (prod) ───────────────────────────────────────── */
 const MIME = {
   ".html": "text/html",
@@ -75,7 +108,9 @@ function createRequestHandler(DIST) {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' https://flagcdn.com data:",
-    "connect-src 'self' ws: wss:",
+    // allow the cloud server too so the desktop app (served from localhost)
+    // can reach the shared WebSocket + global-leaderboard API
+    "connect-src 'self' ws: wss: https://void-raider.onrender.com",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
@@ -86,6 +121,51 @@ function createRequestHandler(DIST) {
       res.writeHead(200);
       return res.end("ok");
     }
+
+    // ── global leaderboard API (public; CORS-open so the desktop app can read)
+    const urlNoQuery = (req.url || "/").split("?")[0];
+    if (urlNoQuery === "/api/leaderboard") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify(leaderboard));
+      }
+      if (req.method === "POST") {
+        let body = "";
+        let tooBig = false;
+        req.on("data", (chunk) => {
+          body += chunk;
+          if (body.length > 1024) {
+            tooBig = true;
+            req.destroy();
+          }
+        });
+        req.on("end", () => {
+          if (tooBig) return;
+          let msg;
+          try {
+            msg = JSON.parse(body);
+          } catch {
+            res.writeHead(400);
+            return res.end("[]");
+          }
+          const board = addLeaderboardScore(msg?.name, msg?.country, msg?.score);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(board));
+        });
+        return;
+      }
+      res.writeHead(405);
+      return res.end();
+    }
+
     res.setHeader("Content-Security-Policy", CSP);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");

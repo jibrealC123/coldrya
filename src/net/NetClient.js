@@ -7,6 +7,25 @@
 
 // Default cloud co-op server (used by the desktop app for internet play).
 const CLOUD_SERVER = "wss://void-raider.onrender.com";
+const CLOUD_HTTP = "https://void-raider.onrender.com";
+
+// HTTP(S) base for the same server serverUrl() resolves to — used for the
+// global leaderboard API. Mirrors the WS resolution but in http form, so the
+// desktop app talks to the shared cloud server (not its own embedded one).
+export function serverHttpBase() {
+  try {
+    const saved = localStorage.getItem("voidraider_server");
+    if (saved) return saved.trim().replace(/^ws/, "http"); // ws→http, wss→https
+  } catch {
+    /* ignore */
+  }
+  const override = import.meta.env.VITE_SERVER_URL;
+  if (override) return override.replace(/^ws/, "http");
+  if (import.meta.env.DEV) return "http://localhost:8787";
+  const host = location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return CLOUD_HTTP;
+  return location.origin;
+}
 
 export function serverUrl() {
   // 1. manual runtime override — point anywhere, e.g. a local server:

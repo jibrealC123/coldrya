@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Engine } from "./game/engine";
-import { NetClient } from "./net/NetClient";
+import { NetClient, serverHttpBase } from "./net/NetClient";
 import { COUNTRIES, flagUrl } from "./data/countries";
 import "./index.css";
 
@@ -176,12 +176,46 @@ export default function App() {
     }
   }, [status, score, high, mode]);
 
-  // record a solo run on the leaderboard once, when the round ends
+  // pull the global leaderboard on load (falls back to the local copy offline)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${serverHttpBase()}/api/leaderboard`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive && Array.isArray(data)) setLeaderboard(data.slice(0, LEADERBOARD_MAX));
+      } catch {
+        /* offline → keep the local board */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // record a solo run once when the round ends: submit to the global board
+  // (and keep a local copy so it still works offline)
   useEffect(() => {
     if (status === "playing") recordedRef.current = false;
     if (status === "over" && mode === "solo" && !recordedRef.current && score > 0 && pilot) {
       recordedRef.current = true;
-      setLeaderboard(recordScore({ name: pilot.username, country: pilot.country.code, score }));
+      const entry = { name: pilot.username, country: pilot.country.code, score };
+      setLeaderboard(recordScore(entry)); // instant local fallback
+      (async () => {
+        try {
+          const res = await fetch(`${serverHttpBase()}/api/leaderboard`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry),
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (Array.isArray(data)) setLeaderboard(data.slice(0, LEADERBOARD_MAX));
+        } catch {
+          /* offline → local board already updated */
+        }
+      })();
     }
   }, [status, mode, score, pilot]);
 
@@ -589,7 +623,7 @@ export default function App() {
 
           {leaderboard.length > 0 && (
             <div className="leaderboard">
-              <span className="coop-title">TOP PILOTS</span>
+              <span className="coop-title">TOP PILOTS · GLOBAL</span>
               <ol className="lb-list">
                 {leaderboard.map((e, i) => (
                   <li key={i} className="lb-row">
