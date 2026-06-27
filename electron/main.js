@@ -55,8 +55,15 @@ async function createWindow() {
   });
 
   // block the renderer from navigating the window away from the app itself
+  // (exact origin match — startsWith would allow http://localhost:PORT.evil.com)
   win.webContents.on("will-navigate", (e, url) => {
-    if (!url.startsWith(appOrigin)) e.preventDefault();
+    let sameOrigin = false;
+    try {
+      sameOrigin = new URL(url).origin === appOrigin;
+    } catch {
+      sameOrigin = false;
+    }
+    if (!sameOrigin) e.preventDefault();
   });
 
   win.loadURL(appOrigin);

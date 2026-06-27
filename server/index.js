@@ -287,7 +287,10 @@ function createRequestHandler(DIST) {
     let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
     if (urlPath === "/") urlPath = "/index.html";
     const filePath = path.join(DIST, urlPath);
-    if (!filePath.startsWith(DIST)) {
+    // robust containment check: reject anything that resolves outside DIST
+    // (path.relative avoids the startsWith() sibling-prefix pitfall)
+    const rel = path.relative(DIST, filePath);
+    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
       res.writeHead(403);
       return res.end("forbidden");
     }
