@@ -1089,50 +1089,40 @@ function BallDevil() {
       }
       ctx.globalAlpha = 1;
 
-      // body (breathing squash/stretch)
-      const sx = 1 + Math.sin(t * 2.2) * 0.04;
-      const sy = 1 - Math.sin(t * 2.2) * 0.04;
-      const R = 46;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(sx, sy);
-      // horns
-      ctx.fillStyle = "#2a0a12";
-      ctx.beginPath();
-      ctx.moveTo(-32, -32);
-      ctx.lineTo(-15, -30);
-      ctx.lineTo(-24, -60);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(32, -32);
-      ctx.lineTo(15, -30);
-      ctx.lineTo(24, -60);
-      ctx.closePath();
-      ctx.fill();
-      // body
-      const bg = ctx.createRadialGradient(-14, -16, 6, 0, 0, R);
-      bg.addColorStop(0, "#ef4b4b");
-      bg.addColorStop(0.6, "#a8122e");
-      bg.addColorStop(1, "#46041a");
-      ctx.fillStyle = bg;
-      ctx.beginPath();
-      ctx.arc(0, 0, R, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = `rgba(255,130,90,${0.4 + pulse * 0.35})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
-      ctx.stroke();
-      // inner molten core glow (no face — just a menacing orb)
-      const core = ctx.createRadialGradient(0, 0, 2, 0, 0, R * 0.6);
-      core.addColorStop(0, `rgba(255,180,90,${0.35 + pulse * 0.3})`);
-      core.addColorStop(1, "rgba(255,120,60,0)");
-      ctx.fillStyle = core;
-      ctx.beginPath();
-      ctx.arc(0, 0, R * 0.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      // ── pixel-art orb body (flat shading, blocky — 2D pixel look) ──
+      const PS = 6; // pixel cell size
+      const Rp = 9; // radius in cells
+      const ox = Math.round(cx);
+      const oy = Math.round(cy);
+      // pixel horns
+      ctx.fillStyle = "#240810";
+      const horns = [
+        [-7, -7], [-7, -8], [-6, -9], [-6, -10], [-5, -11],
+        [7, -7], [7, -8], [6, -9], [6, -10], [5, -11],
+      ];
+      for (const [hx, hy] of horns) ctx.fillRect(ox + hx * PS, oy + hy * PS, PS, PS);
+      // body cells, lit from the top-left
+      for (let py = -Rp; py <= Rp; py++) {
+        for (let px = -Rp; px <= Rp; px++) {
+          const dd = px * px + py * py;
+          if (dd > Rp * Rp) continue;
+          const lit = (-px - py) / (Rp * 1.4);
+          let c;
+          if (dd > (Rp - 1) * (Rp - 1)) c = "#3a0010"; // rim
+          else if (lit > 0.5) c = "#ff8a6a"; // highlight
+          else if (lit > 0.05) c = "#e23a3a"; // light
+          else if (lit > -0.45) c = "#b3122e"; // mid
+          else c = "#6e0420"; // shadow
+          ctx.fillStyle = c;
+          ctx.fillRect(ox + px * PS, oy + py * PS, PS, PS);
+        }
+      }
+      // pulsing molten core (a flat bright cluster, not a smooth gradient)
+      if (pulse > 0.35) {
+        ctx.fillStyle = pulse > 0.7 ? "#ffd27a" : "#ff9a3c";
+        for (const [px, py] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
+          ctx.fillRect(ox + px * PS, oy + py * PS, PS, PS);
+      }
 
       raf = requestAnimationFrame(draw);
     };

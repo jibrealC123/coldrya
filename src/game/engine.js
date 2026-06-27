@@ -227,6 +227,10 @@ export class Engine {
     this.spawnTimer = 0;
     this.shake = 0;
     this.grace = false; // calm warm-up while the villain talks (set by the UI)
+    // The Gus's lightning storms — armed after wave 4, recur every 3 min
+    this.lightning = [];
+    this.storm = null;
+    this.lightningTimer = 1e9;
     this.status = "playing";
     this._emit();
 
@@ -595,10 +599,15 @@ export class Engine {
     // slower, quieter enemies. 1.0 = full pace.
     const g = this.grace ? 0.35 : 1;
 
+    // The Gus's lightning storm (after wave 4). During a storm the enemies
+    // vanish and the pilot only has to dodge bolts; they return afterwards.
+    this._updateLightning(dt);
+
     // wave / spawning — dense from wave 1, denser each tier, burst spawns
+    // (paused while a lightning storm is raging)
     this.spawnTimer -= dt;
     const spawnInterval = clamp(0.8 - tier * 0.16, 0.28, 0.8) / g;
-    if (this.spawnTimer <= 0) {
+    if (!this.storm && this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
       this._spawnEnemy(g);
       for (let i = 0; i < 1 + tier; i++) {
@@ -684,6 +693,59 @@ export class Engine {
       canShoot: Math.random() < clamp((0.3 + tier * 0.15) * g, 0, 0.9), // calm → fewer shooters
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
+    });
+  }
+
+  /* ── The Gus's purple lightning storm ──────────────────────────── */
+  _updateLightning(dt) {
+    const p = this.player;
+    // arm once past wave 4 — first storm ~18s later, then every 3 min
+    if (this.wave > 4 && this.lightningTimer > 1e8) this.lightningTimer = 18;
+
+    if (this.storm) {
+      this.storm.t += dt;
+      this.storm.spawnCd -= dt;
+      const hard = this.storm.hard;
+      if (this.storm.spawnCd <= 0 && this.storm.t < this.storm.duration - 0.8) {
+        this.storm.spawnCd = hard ? rand(0.32, 0.6) : rand(0.85, 1.25);
+        const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.35 ? 1 : 0);
+        for (let i = 0; i < n; i++) this._spawnBolt(hard);
+      }
+      if (this.storm.t >= this.storm.duration && this.lightning.length === 0) {
+        this.storm = null; // storm over → enemies return
+        this.lightningTimer = 180; // next one in 3 minutes
+      }
+    } else if (this.wave > 4) {
+      this.lightningTimer -= dt;
+      if (this.lightningTimer <= 0) this._startStorm();
+    }
+
+    // advance bolts; a strike zaps the pilot if they share its column
+    this.lightning = this.lightning.filter((b) => {
+      b.t += dt;
+      if (b.t >= b.warn && b.t < b.warn + b.strike && p && p.invuln <= 0) {
+        if (Math.abs(p.x - b.x) < b.half) this._hitPlayer();
+      }
+      return b.t < b.warn + b.strike + 0.18;
+    });
+  }
+
+  _startStorm() {
+    const hard = this.wave >= 10; // wave 10+ → stronger, harder to dodge
+    this.storm = { t: 0, duration: hard ? 7 : 5, spawnCd: 0.4, hard };
+    this.enemies = []; // enemies disappear for the storm
+    this.enemyBullets = [];
+    this.shake = 0.4;
+  }
+
+  _spawnBolt(hard) {
+    this.lightning.push({
+      x: rand(40, this.W - 40),
+      t: 0,
+      warn: hard ? 0.5 : 0.85, // shorter telegraph = harder to dodge
+      strike: 0.32,
+      half: hard ? 26 : 22, // wider strike when hard
+      seed: (Math.random() * 1e6) | 0,
     });
   }
 
@@ -892,11 +954,52 @@ export class Engine {
       this._drawEnemy(e);
     }
 
+    // lightning storm bolts
+    if (this.lightning && this.lightning.length) this._drawLightning(this.H);
+
     // player
     if (this.player) this._drawPlayer();
 
     ctx.restore();
     this._drawHurt();
+  }
+
+  // Pixel-art purple lightning: a telegraph line, then a jagged bolt that
+  // flickers each frame. `worldH` is the column height in the active transform.
+  _drawLightning(worldH) {
+    const ctx = this.ctx;
+    const PS = 6;
+    for (const b of this.lightning) {
+      const warning = b.t < b.warn;
+      if (warning) {
+        // telegraph: a thin flickering purple beam where the bolt will land
+        ctx.fillStyle = `rgba(168,85,247,${Math.sin(b.t * 42) > 0 ? 0.5 : 0.18})`;
+        ctx.fillRect(b.x - 2, 0, 4, worldH);
+        continue;
+      }
+      const past = b.t - b.warn - b.strike;
+      ctx.globalAlpha = past > 0 ? Math.max(0, 1 - past / 0.18) : 1;
+      // seeded jag, reseeded by time so it flickers like real lightning
+      let seed = b.seed + Math.floor(b.t * 28);
+      const rnd = () => {
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      };
+      let x = b.x;
+      // layered rects give the glow cheaply (no per-segment shadowBlur)
+      for (let y = 0; y < worldH; y += PS) {
+        x = clamp(x + (rnd() - 0.5) * PS * 2.4, b.x - b.half, b.x + b.half);
+        const px = Math.round(x / PS) * PS;
+        ctx.fillStyle = "rgba(168,85,247,0.35)"; // outer glow
+        ctx.fillRect(px - PS * 2, y, PS * 5, PS);
+        ctx.fillStyle = "#c97bff"; // body
+        ctx.fillRect(px - PS, y, PS * 3, PS);
+        ctx.fillStyle = "#ffffff"; // bright core
+        ctx.fillRect(px, y, PS, PS);
+        if (rnd() < 0.25) ctx.fillRect(px - PS * 2, y, PS, PS); // branch flicker
+      }
+      ctx.globalAlpha = 1;
+    }
   }
 
   _drawPlayer() {
