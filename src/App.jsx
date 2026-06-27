@@ -287,17 +287,20 @@ export default function App() {
     setIntro(true);
   }, [pilot]);
 
-  // welcome OK → start the round AND fade the Void King into the space so he
-  // taunts the pilot while they're already flying ("story while playing")
+  // welcome OK → start the round in a calm grace AND fade the devil in so he
+  // taunts the pilot while they fly ("story while playing")
   const beginGame = useCallback(() => {
     setIntro(false);
     const start = pendingStartRef.current;
     pendingStartRef.current = null;
-    start?.(); // ships appear, the pilot can fly immediately
-    setVillain(true); // Void King materializes + talks over the live game
+    start?.(); // ships appear, the pilot can fly immediately (calm pace)
+    engineRef.current?.setGrace(true);
+    setVillain(true); // devil materializes + talks over the live game
   }, []);
 
-  // villain finished his lines → fade him out
+  // countdown hits "START!" → full battle begins
+  const villainStart = useCallback(() => engineRef.current?.setGrace(false), []);
+  // sequence fully done → unmount the devil
   const endVillain = useCallback(() => setVillain(false), []);
 
   // quit a solo run back to the menu
@@ -478,8 +481,8 @@ export default function App() {
         <Intro name={pilot.username} mode={mode} onOk={beginGame} onReturn={returnToLobby} />
       )}
 
-      {/* The Void King fades into the space and taunts you mid-flight */}
-      {villain && <VillainSequence onDone={endVillain} />}
+      {/* The devil fades in and taunts you mid-flight, then 3·2·1·START! */}
+      {villain && <VillainSequence onStart={villainStart} onDone={endVillain} />}
 
 
       {/* HUD */}
@@ -1027,118 +1030,206 @@ function Intro({ name, mode, onOk, onReturn }) {
   );
 }
 
-// ── The Void King ─────────────────────────────────────────────────────
-const VILLAIN_NAME = "THE VOID KING";
+// ── The villain — an animated ball-devil ──────────────────────────────
+const VILLAIN_NAME = "THE GUS";
 const VILLAIN_LINES = [
   "So… a new spark dares to flicker in MY void.",
   "These dead stars are my throne, little ship.",
   "Hehe… you may see me once again after some waves….",
 ];
 
-// Pixel-art Void King (from the character design) drawn once to a canvas —
-// a dark figure with a void aura and a grinning maw. Faded into the space.
-function VoidKing() {
+// A round devil drawn on its own canvas with a real animation loop — it
+// floats, breathes, its lighting aura + embers pulse, and its eyes glow.
+function BallDevil() {
   const ref = useRef(null);
   useEffect(() => {
     const cvs = ref.current;
     if (!cvs) return;
-    const S = 3;
-    const GW = 128;
-    const GH = 170;
-    cvs.width = GW * S;
-    cvs.height = GH * S;
     const ctx = cvs.getContext("2d");
-    const f = (x, y, w, h, c) => {
-      ctx.fillStyle = c;
-      ctx.fillRect(x * S, y * S, w * S, h * S);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = 240;
+    const H = 240;
+    cvs.width = W * dpr;
+    cvs.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    const embers = Array.from({ length: 16 }, () => ({
+      a: Math.random() * Math.PI * 2,
+      r: 58 + Math.random() * 42,
+      sp: 0.2 + Math.random() * 0.6,
+      sz: 1 + Math.random() * 2,
+      ph: Math.random() * Math.PI * 2,
+    }));
+    const t0 = performance.now();
+    let raf = 0;
+    const draw = (now) => {
+      const t = (now - t0) / 1000;
+      ctx.clearRect(0, 0, W, H);
+      const cx = W / 2;
+      const cy = H / 2 + Math.sin(t * 1.6) * 8; // float
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
+
+      // lighting aura
+      const auraR = 78 + pulse * 18;
+      const ag = ctx.createRadialGradient(cx, cy, 10, cx, cy, auraR);
+      ag.addColorStop(0, `rgba(255,70,50,${0.34 + pulse * 0.2})`);
+      ag.addColorStop(0.5, "rgba(180,20,60,0.16)");
+      ag.addColorStop(1, "rgba(120,0,40,0)");
+      ctx.fillStyle = ag;
+      ctx.beginPath();
+      ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // orbiting embers
+      for (const e of embers) {
+        const ang = e.a + t * e.sp;
+        const rr = e.r + Math.sin(t * 1.5 + e.ph) * 6;
+        ctx.globalAlpha = 0.35 + 0.45 * Math.abs(Math.sin(t * 3 + e.ph));
+        ctx.fillStyle = "#ff9a3c";
+        ctx.fillRect(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr * 0.85, e.sz, e.sz);
+      }
+      ctx.globalAlpha = 1;
+
+      // body (breathing squash/stretch)
+      const sx = 1 + Math.sin(t * 2.2) * 0.04;
+      const sy = 1 - Math.sin(t * 2.2) * 0.04;
+      const R = 46;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(sx, sy);
+      // horns
+      ctx.fillStyle = "#2a0a12";
+      ctx.beginPath();
+      ctx.moveTo(-32, -32);
+      ctx.lineTo(-15, -30);
+      ctx.lineTo(-24, -60);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(32, -32);
+      ctx.lineTo(15, -30);
+      ctx.lineTo(24, -60);
+      ctx.closePath();
+      ctx.fill();
+      // body
+      const bg = ctx.createRadialGradient(-14, -16, 6, 0, 0, R);
+      bg.addColorStop(0, "#ef4b4b");
+      bg.addColorStop(0.6, "#a8122e");
+      bg.addColorStop(1, "#46041a");
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.arc(0, 0, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,130,90,${0.4 + pulse * 0.35})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
+      ctx.stroke();
+      // angry glowing eyes
+      ctx.shadowColor = "#ffcc33";
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = `rgba(255,220,90,${0.65 + pulse * 0.35})`;
+      ctx.save();
+      ctx.translate(-16, -6);
+      ctx.rotate(0.32);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.translate(16, -6);
+      ctx.rotate(-0.32);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#3a0a00";
+      ctx.beginPath();
+      ctx.arc(-15, -5, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(15, -5, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // jagged grin
+      ctx.strokeStyle = "#2a0008";
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(-24, 15);
+      [-15, -7, 0, 7, 15, 24].forEach((x, i) => ctx.lineTo(x, i % 2 ? 22 : 15));
+      ctx.stroke();
+      ctx.restore();
+
+      raf = requestAnimationFrame(draw);
     };
-    const disk = (cx, cy, r, c) => {
-      ctx.fillStyle = c;
-      for (let dy = -r; dy <= r; dy++)
-        for (let dx = -r; dx <= r; dx++)
-          if (dx * dx + dy * dy <= r * r) ctx.fillRect((cx + dx) * S, (cy + dy) * S, S, S);
-    };
-    const D = "#1a1640"; // body (lifted a touch so it reads against deep space)
-    const GD = "#060210"; // grin frame
-    const TH = "#f0f0ea"; // teeth
-    // head + neck
-    disk(64, 13, 11, D);
-    f(61, 24, 6, 6, D);
-    // shoulder cap
-    f(50, 30, 28, 1, D);
-    f(46, 31, 36, 1, D);
-    f(42, 32, 44, 1, D);
-    f(40, 33, 48, 3, D);
-    // torso / waist / hips
-    f(52, 36, 24, 24, D);
-    f(54, 60, 20, 6, D);
-    f(51, 66, 26, 7, D);
-    // arms
-    f(40, 36, 9, 24, D);
-    f(42, 60, 8, 20, D);
-    disk(46, 81, 5, D);
-    f(79, 36, 9, 24, D);
-    f(78, 60, 8, 20, D);
-    disk(82, 81, 5, D);
-    // legs + feet
-    f(51, 73, 12, 30, D);
-    f(65, 73, 12, 30, D);
-    f(52, 103, 11, 24, D);
-    f(65, 103, 11, 24, D);
-    f(46, 127, 18, 5, D);
-    f(65, 127, 18, 5, D);
-    // grin
-    f(55, 18, 18, 1, GD);
-    f(56, 19, 16, 1, TH);
-    [59, 63, 67, 71].forEach((x) => f(x, 19, 1, 1, GD));
-    f(57, 20, 14, 1, GD);
-    f(58, 21, 12, 1, TH);
-    [61, 65, 68].forEach((x) => f(x, 21, 1, 1, GD));
-    f(59, 22, 9, 1, GD);
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
   }, []);
-  return <canvas ref={ref} className="voidking-canvas" aria-hidden="true" />;
+  return <canvas ref={ref} className="balldevil-canvas" aria-hidden="true" />;
 }
 
-// Plays over the LIVE game: the Void King fades in, taunts via subtitles that
-// auto-advance, then fades out — the pilot keeps flying the whole time.
-function VillainSequence({ onDone }) {
+// Over the LIVE (calm) game: the devil fades in, taunts via auto-advancing
+// subtitles, then a 3·2·1·START! countdown kicks off the full battle.
+function VillainSequence({ onStart, onDone }) {
+  const [phase, setPhase] = useState("talk"); // talk | count | go
   const [line, setLine] = useState(0);
   const [chars, setChars] = useState(0);
-  const [out, setOut] = useState(false);
+  const [count, setCount] = useState(3);
   const text = VILLAIN_LINES[line];
 
   // typewriter for the current line
   useEffect(() => {
+    if (phase !== "talk") return;
     setChars(0);
-    const id = setInterval(() => {
-      setChars((c) => (c >= text.length ? c : c + 1));
-    }, 42);
+    const id = setInterval(() => setChars((c) => (c >= text.length ? c : c + 1)), 42);
     return () => clearInterval(id);
-  }, [line, text]);
+  }, [line, text, phase]);
 
-  // auto-advance once the line finishes typing (no clicking — you're flying)
+  // auto-advance lines, then move into the countdown
   useEffect(() => {
-    if (chars < text.length) return;
+    if (phase !== "talk" || chars < text.length) return;
     const hold = setTimeout(() => {
-      if (line < VILLAIN_LINES.length - 1) {
-        setLine((l) => l + 1);
-      } else {
-        setOut(true); // fade the king back into the void
-        setTimeout(onDone, 1300);
+      if (line < VILLAIN_LINES.length - 1) setLine((l) => l + 1);
+      else {
+        setPhase("count");
+        setCount(3);
       }
-    }, 2400);
+    }, 2200);
     return () => clearTimeout(hold);
-  }, [chars, text, line, onDone]);
+  }, [chars, text, line, phase]);
+
+  // 3 · 2 · 1 → START!
+  useEffect(() => {
+    if (phase !== "count") return;
+    if (count > 1) {
+      const id = setTimeout(() => setCount((c) => c - 1), 850);
+      return () => clearTimeout(id);
+    }
+    const id = setTimeout(() => {
+      setPhase("go");
+      onStart(); // full battle begins
+      setTimeout(onDone, 1200); // let "START!" flash + the devil fade out
+    }, 850);
+    return () => clearTimeout(id);
+  }, [phase, count, onStart, onDone]);
 
   return (
-    <div className={`villain-seq${out ? " out" : ""}`} aria-hidden="true">
-      <div className="voidking-wrap">
-        <VoidKing />
+    <div className={`villain-seq${phase === "go" ? " out" : ""}`} aria-hidden="true">
+      <div className="balldevil-wrap">
+        <BallDevil />
       </div>
-      <div className="villain-sub">
-        <span className="villain-sub-name">{VILLAIN_NAME}</span>
-        <span className="villain-sub-text">{text.slice(0, chars)}</span>
-      </div>
+      {phase === "talk" && (
+        <div className="villain-sub">
+          <span className="villain-sub-name">{VILLAIN_NAME}</span>
+          <span className="villain-sub-text">{text.slice(0, chars)}</span>
+        </div>
+      )}
+      {phase === "count" && (
+        <div key={count} className="villain-count">
+          {count}
+        </div>
+      )}
+      {phase === "go" && <div className="villain-count go">START!</div>}
     </div>
   );
 }

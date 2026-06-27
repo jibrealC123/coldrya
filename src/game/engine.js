@@ -226,6 +226,7 @@ export class Engine {
     this.waveTimer = 0;
     this.spawnTimer = 0;
     this.shake = 0;
+    this.grace = false; // calm warm-up while the villain talks (set by the UI)
     this.status = "playing";
     this._emit();
 
@@ -352,6 +353,12 @@ export class Engine {
       this.flagImgs.set(code, img);
     }
     return img.complete && img.naturalWidth ? img : null;
+  }
+
+  // Toggle the calm warm-up (solo). The villain sequence turns it on during
+  // the taunt and off at "START!". Co-op pacing is server-authoritative.
+  setGrace(on) {
+    this.grace = !!on;
   }
 
   // Quit a solo run straight back to the menu.
@@ -582,18 +589,21 @@ export class Engine {
 
     // difficulty steps up every 3 waves (a "tier")
     const tier = Math.floor((this.wave - 1) / 3);
+    // grace/calm while the villain is taunting (before "START!"): fewer,
+    // slower, quieter enemies. 1.0 = full pace.
+    const g = this.grace ? 0.35 : 1;
 
     // wave / spawning — dense from wave 1, denser each tier, burst spawns
     this.spawnTimer -= dt;
-    const spawnInterval = clamp(0.8 - tier * 0.16, 0.28, 0.8);
+    const spawnInterval = clamp(0.8 - tier * 0.16, 0.28, 0.8) / g;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = spawnInterval;
-      this._spawnEnemy();
+      this._spawnEnemy(g);
       for (let i = 0; i < 1 + tier; i++) {
-        if (Math.random() < 0.5) this._spawnEnemy();
+        if (Math.random() < 0.5 * g) this._spawnEnemy(g);
       }
     }
-    this.waveTimer += dt;
+    this.waveTimer += dt * g; // calm → waves advance slower
     if (this.waveTimer > 13) {
       this.waveTimer = 0;
       this.wave += 1;
@@ -604,7 +614,7 @@ export class Engine {
     // extra bullet per shot (spread burst)
     const bulletSpeed = Math.min(340 + tier * 60, 640);
     const shots = Math.min(1 + tier, 5);
-    const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7);
+    const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7) / g;
 
     // enemies
     for (const e of this.enemies) {
@@ -657,19 +667,19 @@ export class Engine {
     this.enemies = this.enemies.filter((e) => e.y < this.H + 40 && e.hp > 0);
   }
 
-  _spawnEnemy() {
+  _spawnEnemy(g = 1) {
     const tier = Math.floor((this.wave - 1) / 3);
     const tough = Math.random() < clamp(0.16 + this.wave * 0.03, 0, 0.55);
     this.enemies.push({
       x: rand(30, this.W - 30),
       y: -30,
       r: tough ? 20 : 14,
-      vy: rand(90, 150) + this.wave * 8,
+      vy: (rand(90, 150) + this.wave * 8) * (0.5 + 0.5 * g), // calm → slower descent
       sway: rand(30, 95),
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
       maxHp: tough ? 3 : 1,
-      canShoot: Math.random() < clamp(0.3 + tier * 0.15, 0, 0.9),
+      canShoot: Math.random() < clamp((0.3 + tier * 0.15) * g, 0, 0.9), // calm → fewer shooters
       fireCd: rand(0.8, 2.5),
       score: tough ? 50 : 20,
     });
