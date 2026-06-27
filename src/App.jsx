@@ -689,10 +689,11 @@ export default function App() {
               <span className="coop-title">TOP PILOTS · GLOBAL</span>
               <ol className="lb-list">
                 {leaderboard.map((e, i) => (
-                  <li key={i} className="lb-row">
+                  <li key={i} className={`lb-row${i === 0 ? " top" : ""}`}>
                     <span className="lb-rank">{i + 1}</span>
                     <Flag code={e.country} w={20} className="lb-flag" />
                     <span className="lb-name">{e.name}</span>
+                    {i === 0 && <span className="lb-crown">THE HIGHEST SCORE</span>}
                     <span className="lb-score">{String(e.score).padStart(6, "0")}</span>
                   </li>
                 ))}
