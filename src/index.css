@@ -252,6 +252,40 @@ body {
   97% { opacity: 0.6; }
 }
 
+/* ── Horror death screen (solo) ───────────────────────────────────── */
+.overlay.death {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(28, 0, 0, 0.92),
+    rgba(0, 0, 0, 0.99)
+  );
+  backdrop-filter: blur(3px);
+}
+.title-sm.you-died {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: clamp(40px, 10vw, 84px);
+  letter-spacing: 0.06em;
+  color: #9b0000; /* deep blood red */
+  text-shadow: 0 0 26px rgba(150, 0, 0, 0.9), 0 0 60px rgba(110, 0, 0, 0.55);
+  animation: youDiedReveal 2.6s ease-out both, youDiedBreathe 4s ease-in-out 2.6s infinite;
+}
+/* slow, ominous fade-in from a blurred, spread-out state */
+@keyframes youDiedReveal {
+  0% { opacity: 0; transform: scale(1.22); letter-spacing: 0.34em; filter: blur(7px); }
+  45% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1); letter-spacing: 0.06em; filter: blur(0); }
+}
+/* faint pulsing glow afterwards for dread */
+@keyframes youDiedBreathe {
+  0%, 100% { text-shadow: 0 0 22px rgba(140, 0, 0, 0.75), 0 0 50px rgba(90, 0, 0, 0.4); }
+  50% { text-shadow: 0 0 34px rgba(180, 0, 0, 1), 0 0 70px rgba(120, 0, 0, 0.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .title-sm.you-died { animation: youDiedFade 1.2s ease-out both; }
+  @keyframes youDiedFade { from { opacity: 0; } to { opacity: 1; } }
+}
+
 .subtitle {
   font-size: 22px;
   color: rgba(255, 255, 255, 0.6);

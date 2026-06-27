@@ -545,8 +545,10 @@ export default function App() {
 
       {/* GAME OVER */}
       {status === "over" && (
-        <Overlay>
-          <h2 className="title-sm gameover">{coop ? "MISSION FAILED" : "GAME OVER"}</h2>
+        <Overlay className={coop ? "" : "death"}>
+          <h2 className={coop ? "title-sm gameover" : "title-sm you-died"}>
+            {coop ? "MISSION FAILED" : "YOU DIED!"}
+          </h2>
           <div className="score-final">
             <span className="hud-label">{coop ? "TEAM SCORE" : "FINAL SCORE"}</span>
             <span className="big-score">{String(score).padStart(6, "0")}</span>
@@ -728,9 +730,9 @@ function UpdateOverlay({ update, onDismiss }) {
   return null; // checking / none → silent
 }
 
-function Overlay({ children }) {
+function Overlay({ children, className = "" }) {
   return (
-    <div className="overlay">
+    <div className={`overlay ${className}`.trim()}>
       <div className="overlay-panel">{children}</div>
     </div>
   );
