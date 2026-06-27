@@ -662,24 +662,24 @@ kbd {
 .leaderboard {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 22px;
+  gap: 7px;
+  padding: 14px 18px;
   border: 1px solid rgba(96, 165, 250, 0.25);
   border-radius: 8px;
   background: rgba(37, 99, 235, 0.06);
 }
 .menu-board {
-  flex: 1 1 440px;
-  width: min(480px, 92vw);
-  align-self: stretch;
+  flex: 0 1 auto; /* size to its content — don't stretch to full height */
+  width: min(400px, 90vw);
+  align-self: center;
 }
 .lb-title {
   font-family: var(--font-pixel);
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 1px;
   color: var(--c-red);
   text-align: center;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 .lb-list {
   list-style: none;
@@ -688,28 +688,28 @@ kbd {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .lb-row {
   display: grid;
-  grid-template-columns: 28px 40px 1fr auto;
+  grid-template-columns: 22px 28px 1fr auto;
   align-items: center;
-  column-gap: 16px; /* clear separation between rank · flag · name · score */
-  padding: 6px 8px;
+  column-gap: 13px; /* clear separation between rank · flag · name · score */
+  padding: 3px 6px;
   border-radius: 5px;
   font-family: var(--font-term);
-  font-size: 23px;
+  font-size: 19px;
   color: rgba(255, 255, 255, 0.88);
 }
 .lb-rank {
   font-family: var(--font-pixel);
-  font-size: 13px;
+  font-size: 11px;
   color: var(--c-blue-glow);
   text-align: center;
 }
 .lb-flag {
-  width: 34px;
-  height: 23px;
+  width: 26px;
+  height: 18px;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
@@ -727,7 +727,7 @@ kbd {
 }
 .lb-score {
   font-family: var(--font-pixel);
-  font-size: 17px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.92);
   justify-self: end;
 }
