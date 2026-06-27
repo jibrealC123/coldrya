@@ -230,6 +230,7 @@ export class Engine {
     this.status = "playing";
     this._emit();
 
+    cancelAnimationFrame(this.rafId); // guard against a stray double rAF loop
     this.running = true;
     this.lastTs = performance.now();
     this.rafId = requestAnimationFrame(this._loop);
@@ -258,6 +259,7 @@ export class Engine {
     this.status = "playing";
     this._computeView();
     this._emit();
+    cancelAnimationFrame(this.rafId); // guard against a stray double rAF loop
     this.running = true;
     this.lastTs = performance.now();
     this.rafId = requestAnimationFrame(this._loop);

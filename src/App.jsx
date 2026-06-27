@@ -1205,13 +1205,17 @@ function VillainSequence({ onStart, onDone }) {
       const id = setTimeout(() => setCount((c) => c - 1), 850);
       return () => clearTimeout(id);
     }
-    const id = setTimeout(() => {
-      setPhase("go");
-      onStart(); // full battle begins
-      setTimeout(onDone, 1200); // let "START!" flash + the devil fade out
-    }, 850);
+    const id = setTimeout(() => setPhase("go"), 850);
     return () => clearTimeout(id);
-  }, [phase, count, onStart, onDone]);
+  }, [phase, count]);
+
+  // "go": full battle begins, then unmount after START! flashes + devil fades
+  useEffect(() => {
+    if (phase !== "go") return;
+    onStart();
+    const id = setTimeout(onDone, 1200);
+    return () => clearTimeout(id);
+  }, [phase, onStart, onDone]);
 
   return (
     <div className={`villain-seq${phase === "go" ? " out" : ""}`} aria-hidden="true">
