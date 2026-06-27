@@ -202,6 +202,19 @@ const MIME = {
   ".woff2": "font/woff2",
 };
 
+// browser features the game never uses → disabled across the board
+const PERMISSIONS_POLICY =
+  "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+function setCommonHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  // HSTS is ignored over plain http (the desktop app on localhost) and only
+  // takes effect on the https cloud host — safe to send everywhere
+  res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  res.setHeader("Permissions-Policy", PERMISSIONS_POLICY);
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+}
+
 function createRequestHandler(DIST) {
   // CSP locks the app down to its own assets + the few known third parties
   // (Google Fonts, flag CDN, the game WebSocket). No inline/eval scripts.
@@ -214,12 +227,17 @@ function createRequestHandler(DIST) {
     // allow the cloud server too so the desktop app (served from localhost)
     // can reach the shared WebSocket + global-leaderboard API
     "connect-src 'self' ws: wss: https://void-raider.onrender.com",
+    "worker-src 'self'",
+    "manifest-src 'self'",
     "object-src 'none'",
+    "frame-src 'none'",
+    "form-action 'self'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
   ].join("; ");
 
   return (req, res) => {
+    setCommonHeaders(res);
     if (req.url === "/healthz") {
       res.writeHead(200);
       return res.end("ok");
@@ -231,7 +249,7 @@ function createRequestHandler(DIST) {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "no-store"); // never cache live scores
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         return res.end();
@@ -282,10 +300,14 @@ function createRequestHandler(DIST) {
     }
 
     res.setHeader("Content-Security-Policy", CSP);
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "no-referrer");
     let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
     if (urlPath === "/") urlPath = "/index.html";
+    // hashed build assets are immutable → cache hard; everything else
+    // (index.html / SPA fallback) must revalidate so deploys are picked up
+    res.setHeader(
+      "Cache-Control",
+      urlPath.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache"
+    );
     const filePath = path.join(DIST, urlPath);
     // robust containment check: reject anything that resolves outside DIST
     // (path.relative avoids the startsWith() sibling-prefix pitfall)
