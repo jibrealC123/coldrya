@@ -201,6 +201,8 @@ function createRequestHandler(DIST) {
         return res.end();
       }
       if (req.method === "GET") {
+        // diagnostic: is the board on the permanent DB or the ephemeral file?
+        res.setHeader("X-Leaderboard-Store", pgPool ? "postgres" : "file");
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify(leaderboard));
       }
