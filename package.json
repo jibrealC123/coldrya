@@ -1,7 +1,7 @@
 {
   "name": "void-raider",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "ColdRya — a 2D arcade space shooter with online co-op.",
   "author": "ColdRya",
   "type": "module",
