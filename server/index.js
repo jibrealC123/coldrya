@@ -53,6 +53,16 @@ const cleanName = (v) => {
 };
 const cleanCountry = (v) =>
   (String(v ?? 'us').toLowerCase().match(/[a-z]/g) || ['u', 's']).join('').slice(0, 2) || 'us';
+const cleanChat = (v) => {
+  const s = String(v ?? '');
+  let out = '';
+  for (const ch of s) {
+    const c = ch.charCodeAt(0);
+    if (c >= 32 && c !== 127) out += ch; // drop control characters
+  }
+  return out.trim().slice(0, 140);
+};
+const MAX_CHAT_HISTORY = 40;
 
 /* ── global leaderboard (shared across all players) ──────────────────────
    Top scores live on the cloud server so everyone sees the same board.
@@ -356,7 +366,9 @@ function getRoom(code) {
       enemyId: 1,
       nextRespawnCheck: 0,
       started: false, // lobby until the host hits START
+      startedAt: 0, // ms timestamp of START (drives the calm warm-up)
       hostId: null,
+      chat: [], // recent chat messages (last LB-ish few, for late joiners)
     };
     rooms.set(code, room);
   }
@@ -391,10 +403,21 @@ function resetRoom(room) {
 function startRoom(room) {
   resetRoom(room);
   room.started = true;
+  room.startedAt = Date.now();
+}
+
+// Calm warm-up: the round eases in over the first CALM_SECS so friends can
+// chat before the fast pace kicks in. Returns 0.35 (slow) → 1.0 (full).
+const CALM_SECS = 180; // 3 minutes
+function roundIntensity(room) {
+  if (!room.startedAt) return 1;
+  const elapsed = (Date.now() - room.startedAt) / 1000;
+  if (elapsed >= CALM_SECS) return 1;
+  return clamp(0.35 + 0.65 * (elapsed / CALM_SECS), 0.35, 1);
 }
 
 /* ── sim ─────────────────────────────────────────────────────────────── */
-function spawnEnemy(room) {
+function spawnEnemy(room, intensity = 1) {
   const tier = Math.floor((room.wave - 1) / 3);
   const tough = Math.random() < clamp(0.16 + room.wave * 0.03, 0, 0.55);
   room.enemies.push({
@@ -402,12 +425,12 @@ function spawnEnemy(room) {
     x: rand(40, WORLD.w - 40),
     y: -30,
     r: tough ? 20 : 14,
-    vy: rand(90, 150) + room.wave * 8,
+    vy: (rand(90, 150) + room.wave * 8) * (0.5 + 0.5 * intensity), // calm → slower descent
     sway: rand(30, 95),
     phase: rand(0, Math.PI * 2),
     hp: tough ? 3 : 1,
     maxHp: tough ? 3 : 1,
-    canShoot: Math.random() < clamp(0.3 + tier * 0.15, 0, 0.9),
+    canShoot: Math.random() < clamp((0.3 + tier * 0.15) * intensity, 0, 0.9), // calm → fewer shooters
     fireCd: rand(0.8, 2.5),
     score: tough ? 50 : 20,
   });
@@ -438,21 +461,23 @@ function tick(room, dt) {
 
   // difficulty steps up every 3 waves (a "tier")
   const tier = Math.floor((room.wave - 1) / 3);
+  // calm warm-up dampens everything for the first 3 min (1.0 = full pace)
+  const intensity = roundIntensity(room);
 
   if (!room.over) {
     // spawning — dense from wave 1, denser each tier, with burst spawns
     room.spawnTimer -= dt;
-    const interval = clamp(0.8 - tier * 0.16, 0.28, 0.8);
+    const interval = clamp(0.8 - tier * 0.16, 0.28, 0.8) / intensity; // calm → longer gaps
     if (room.spawnTimer <= 0 && aliveCount > 0) {
       room.spawnTimer = interval;
-      spawnEnemy(room);
+      spawnEnemy(room, intensity);
       for (let i = 0; i < 1 + tier; i++) {
-        if (Math.random() < 0.5) spawnEnemy(room);
+        if (Math.random() < 0.5 * intensity) spawnEnemy(room, intensity);
       }
       // more players → more pressure
-      if (room.players.size > 1 && Math.random() < 0.4) spawnEnemy(room);
+      if (room.players.size > 1 && Math.random() < 0.4 * intensity) spawnEnemy(room, intensity);
     }
-    room.waveTimer += dt;
+    room.waveTimer += dt * intensity; // calm → waves advance slower
     if (room.waveTimer > 13) {
       room.waveTimer = 0;
       room.wave += 1;
@@ -498,7 +523,7 @@ function tick(room, dt) {
   // extra bullet per shot (spread burst)
   const bulletSpeed = Math.min(340 + tier * 60, 640);
   const shots = Math.min(1 + tier, 5);
-  const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7);
+  const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7) / intensity; // calm → longer between shots
 
   // enemies
   for (const e of room.enemies) {
@@ -639,6 +664,13 @@ function snapshot(room) {
   };
 }
 
+function broadcastToRoom(room, obj) {
+  const data = JSON.stringify(obj);
+  for (const p of room.players.values()) {
+    if (p.ws.readyState === 1) p.ws.send(data);
+  }
+}
+
 /* ── server bootstrap ────────────────────────────────────────────────── */
 let pid = 1;
 
@@ -736,6 +768,7 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
         ws.player = player;
         ws.room = room;
         ws.send(JSON.stringify({ t: "welcome", id: player.id, room: code, w: WORLD.w, h: WORLD.h, host: room.hostId === player.id }));
+        if (room.chat.length) ws.send(JSON.stringify({ t: "chatlog", messages: room.chat }));
       } else if (msg.t === "input" && ws.player) {
         const p = ws.player;
         if (Number.isFinite(msg.x)) p.x = clamp(msg.x, 18, WORLD.w - 18);
@@ -749,6 +782,22 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
       } else if (msg.t === "restart" && ws.room && ws.room.over) {
         // only after the round actually ended — stops mid-game reset griefing
         resetRoom(ws.room);
+      } else if (msg.t === "chat" && ws.player && ws.room) {
+        // simple per-player throttle (≤ ~2 msgs/sec) on top of the global cap
+        if (now - (ws.player.lastChatAt || 0) < 500) return;
+        const text = cleanChat(msg.text);
+        if (!text) return;
+        ws.player.lastChatAt = now;
+        const entry = {
+          id: ws.player.id,
+          name: ws.player.name,
+          country: ws.player.country,
+          text,
+          ts: now,
+        };
+        ws.room.chat.push(entry);
+        if (ws.room.chat.length > MAX_CHAT_HISTORY) ws.room.chat.shift();
+        broadcastToRoom(ws.room, { t: "chat", msg: entry });
       }
     });
 

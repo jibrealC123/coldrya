@@ -52,10 +52,11 @@ export function serverUrl() {
 }
 
 export class NetClient {
-  constructor({ onWelcome, onSnap, onStatus } = {}) {
+  constructor({ onWelcome, onSnap, onStatus, onChat } = {}) {
     this.onWelcome = onWelcome || (() => {});
     this.onSnap = onSnap || (() => {});
     this.onStatus = onStatus || (() => {});
+    this.onChat = onChat || (() => {});
     this.ws = null;
     this.id = null;
     this.room = null;
@@ -100,6 +101,10 @@ export class NetClient {
         this.onWelcome(msg);
       } else if (msg.t === "snap") {
         this.onSnap(msg);
+      } else if (msg.t === "chat") {
+        this.onChat({ messages: [msg.msg], replace: false });
+      } else if (msg.t === "chatlog") {
+        this.onChat({ messages: msg.messages || [], replace: true });
       } else if (msg.t === "denied") {
         // server rejected the join (room full / at capacity) — don't retry
         this.closedByUser = true;
@@ -141,6 +146,13 @@ export class NetClient {
   setReady(ready) {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify({ t: "ready", ready: !!ready }));
+    }
+  }
+
+  sendChat(text) {
+    const t = String(text || "").slice(0, 140);
+    if (t.trim() && this.ws && this.ws.readyState === 1) {
+      this.ws.send(JSON.stringify({ t: "chat", text: t }));
     }
   }
 

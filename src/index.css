@@ -1025,6 +1025,100 @@ kbd {
   margin-top: 2px;
 }
 
+/* ── Co-op team chat (side panel) ─────────────────────────────────── */
+.chat-panel {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 25;
+  width: min(300px, 82vw);
+  height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 12, 24, 0.86);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 6px;
+  backdrop-filter: blur(3px);
+  overflow: hidden;
+}
+.chat-head {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--c-blue-glow);
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.2);
+}
+.chat-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-empty {
+  color: rgba(255, 255, 255, 0.35);
+  font-family: var(--font-term);
+  font-size: 16px;
+}
+.chat-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-term);
+  font-size: 17px;
+  line-height: 1.2;
+  color: #e2e8f0;
+}
+.chat-flag {
+  width: 16px;
+  height: 11px;
+  object-fit: cover;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.chat-name {
+  color: var(--c-blue-glow);
+  font-weight: bold;
+  flex: none;
+}
+.chat-msg.mine .chat-name {
+  color: var(--c-green);
+}
+.chat-text {
+  word-break: break-word;
+}
+.chat-form {
+  display: flex;
+  border-top: 1px solid rgba(96, 165, 250, 0.2);
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-family: var(--font-term);
+  font-size: 17px;
+  padding: 8px 10px;
+}
+.chat-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+.chat-send {
+  background: var(--c-blue);
+  border: none;
+  color: #fff;
+  padding: 0 14px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.chat-send:hover {
+  background: var(--c-blue-glow);
+}
+
 /* ── Auto-update ──────────────────────────────────────────────────── */
 .update-overlay {
   z-index: 60;

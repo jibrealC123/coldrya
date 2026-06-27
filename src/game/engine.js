@@ -413,12 +413,22 @@ export class Engine {
 
   /* ── input ─────────────────────────────────────────────────────── */
   _bind() {
+    // ignore keys while the player is typing (e.g. the co-op chat box) so
+    // WASD/space don't steer the ship instead of entering text
+    const typing = (e) => {
+      const t = e.target;
+      return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+    };
     this._onKeyDown = (e) => {
+      if (typing(e)) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key))
         e.preventDefault();
       this.keys.add(e.key.toLowerCase());
     };
-    this._onKeyUp = (e) => this.keys.delete(e.key.toLowerCase());
+    this._onKeyUp = (e) => {
+      if (typing(e)) return;
+      this.keys.delete(e.key.toLowerCase());
+    };
     this._onPointerMove = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       this.pointer.x = e.clientX - rect.left;

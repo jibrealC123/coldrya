@@ -92,6 +92,55 @@ function Flag({ code, w = 40, className }) {
   );
 }
 
+// Co-op side chat — a small panel where teammates type while the round eases
+// in. Typing here doesn't steer the ship (the engine ignores keys from inputs).
+function ChatPanel({ messages, onSend, myId }) {
+  const [text, setText] = useState("");
+  const listRef = useRef(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+  const submit = (e) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+    onSend(t);
+    setText("");
+  };
+  return (
+    <div className="chat-panel">
+      <div className="chat-head">TEAM CHAT</div>
+      <div className="chat-msgs" ref={listRef}>
+        {messages.length === 0 ? (
+          <div className="chat-empty">Say hi to your squad…</div>
+        ) : (
+          messages.map((m, i) => (
+            <div key={i} className={`chat-msg${m.id === myId ? " mine" : ""}`}>
+              <Flag code={m.country} w={20} className="chat-flag" />
+              <span className="chat-name">{m.name}</span>
+              <span className="chat-text">{m.text}</span>
+            </div>
+          ))
+        )}
+      </div>
+      <form className="chat-form" onSubmit={submit}>
+        <input
+          className="chat-input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Type a message…"
+          maxLength={140}
+          aria-label="Chat message"
+        />
+        <button className="chat-send" type="submit" aria-label="Send message">
+          ▶
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function loadPilot() {
   try {
     const raw = localStorage.getItem(PILOT_KEY);
@@ -124,6 +173,7 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState(1);
   const [players, setPlayers] = useState([]); // room roster: {id,name,country,alive,ready}
   const [hostId, setHostId] = useState(null); // current room host's player id
+  const [chat, setChat] = useState([]); // co-op chat messages
   const [update, setUpdate] = useState(null); // {phase, percent, version, message}
   const joinTimer = useRef(null);
   const rosterKeyRef = useRef("");
@@ -295,6 +345,9 @@ export default function App() {
             setPlayers(roster);
           }
         },
+        onChat: ({ messages, replace }) => {
+          setChat((prev) => (replace ? messages : [...prev, ...messages]).slice(-60));
+        },
       });
       netRef.current = net;
       net.connect({ name: pilot.username, country: pilot.country.code, room: code });
@@ -313,6 +366,10 @@ export default function App() {
 
   const hostStart = useCallback(() => {
     netRef.current?.startGame();
+  }, []);
+
+  const sendChat = useCallback((text) => {
+    netRef.current?.sendChat(text);
   }, []);
 
   const copyCode = useCallback(() => {
@@ -334,6 +391,7 @@ export default function App() {
     setMode("solo");
     setPlayers([]);
     setHostId(null);
+    setChat([]);
     setDenyReason("");
     rosterKeyRef.current = "";
     startedRef.current = false;
@@ -462,6 +520,11 @@ export default function App() {
         <button className="leave-btn" onClick={leaveCoop} aria-label="Leave co-op">
           LEAVE
         </button>
+      )}
+
+      {/* CO-OP: side chat (lobby + live) */}
+      {coop && (coopPhase === "joined" || coopPhase === "live") && (
+        <ChatPanel messages={chat} onSend={sendChat} myId={netRef.current?.id} />
       )}
 
       {/* CO-OP: join denied (room full / at capacity) */}
