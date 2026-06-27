@@ -8,6 +8,36 @@ const HIGH_KEY = "voidraider_high";
 const PILOT_KEY = "voidraider_pilot";
 const MAX_LOBBY = 3; // lobby shows up to 3 pilot slots for now
 
+// ── Leaderboard (top solo scores, persisted locally) ──────────────────
+const LEADERBOARD_KEY = "coldrya_leaderboard";
+const LEADERBOARD_MAX = 5;
+function loadLeaderboard() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
+    if (Array.isArray(raw)) {
+      return raw
+        .filter((e) => e && typeof e.score === "number")
+        .sort((a, b) => b.score - a.score)
+        .slice(0, LEADERBOARD_MAX);
+    }
+  } catch {
+    /* ignore corrupt data */
+  }
+  return [];
+}
+function recordScore(entry) {
+  const list = loadLeaderboard();
+  list.push(entry);
+  list.sort((a, b) => b.score - a.score);
+  const top = list.slice(0, LEADERBOARD_MAX);
+  try {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(top));
+  } catch {
+    /* ignore quota errors */
+  }
+  return top;
+}
+
 // readable codes: no ambiguous chars (no O/0, I/1)
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function genRoomCode(len = 4) {
@@ -114,6 +144,8 @@ export default function App() {
   const [levelUp, setLevelUp] = useState(null); // {n, key} → triggers the banner
   const prevLevelRef = useRef(1);
   const [high, setHigh] = useState(() => Number(localStorage.getItem(HIGH_KEY) || 0));
+  const [leaderboard, setLeaderboard] = useState(loadLeaderboard);
+  const recordedRef = useRef(false);
 
   // build engine once
   useEffect(() => {
@@ -144,6 +176,15 @@ export default function App() {
     }
   }, [status, score, high, mode]);
 
+  // record a solo run on the leaderboard once, when the round ends
+  useEffect(() => {
+    if (status === "playing") recordedRef.current = false;
+    if (status === "over" && mode === "solo" && !recordedRef.current && score > 0 && pilot) {
+      recordedRef.current = true;
+      setLeaderboard(recordScore({ name: pilot.username, country: pilot.country.code, score }));
+    }
+  }, [status, mode, score, pilot]);
+
   // "LEVEL n!" banner whenever the level goes up (ignores the reset to 1)
   useEffect(() => {
     if (level > prevLevelRef.current) {
@@ -156,6 +197,11 @@ export default function App() {
     setMode("solo");
     engineRef.current?.startGame(pilot);
   }, [pilot]);
+
+  // quit a solo run back to the menu
+  const quitToMenu = useCallback(() => {
+    engineRef.current?.quitToMenu();
+  }, []);
 
   const joinCoop = useCallback(
     (codeArg, asHost = false) => {
@@ -203,10 +249,13 @@ export default function App() {
             country: pl.country,
             alive: pl.alive,
             ready: pl.ready,
+            lvl: pl.lvl ?? 1,
           }));
           const key =
             `${snap.hostId}|` +
-            roster.map((r) => `${r.id}:${r.name}:${r.country}:${r.alive ? 1 : 0}:${r.ready ? 1 : 0}`).join("|");
+            roster
+              .map((r) => `${r.id}:${r.name}:${r.country}:${r.alive ? 1 : 0}:${r.ready ? 1 : 0}:${r.lvl}`)
+              .join("|");
           if (key !== rosterKeyRef.current) {
             rosterKeyRef.current = key;
             setPlayers(roster);
@@ -324,6 +373,7 @@ export default function App() {
                   >
                     <Flag code={pl.country} w={20} className="hud-flag" />
                     {pl.name}
+                    <span className="pilot-lvl">LV{pl.lvl}</span>
                     {pl.id === netRef.current?.id && <span className="you-tag">YOU</span>}
                   </span>
                 ))}
@@ -537,6 +587,22 @@ export default function App() {
             </div>
           </div>
 
+          {leaderboard.length > 0 && (
+            <div className="leaderboard">
+              <span className="coop-title">TOP PILOTS</span>
+              <ol className="lb-list">
+                {leaderboard.map((e, i) => (
+                  <li key={i} className="lb-row">
+                    <span className="lb-rank">{i + 1}</span>
+                    <Flag code={e.country} w={20} className="lb-flag" />
+                    <span className="lb-name">{e.name}</span>
+                    <span className="lb-score">{String(e.score).padStart(6, "0")}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
           <button className="btn-link" onClick={editPilot}>
             change pilot
           </button>
@@ -554,6 +620,9 @@ export default function App() {
           </button>
           <button className="btn btn-ghost" onClick={startSolo}>
             RESTART
+          </button>
+          <button className="btn btn-ghost" onClick={quitToMenu}>
+            QUIT TO MENU
           </button>
         </Overlay>
       )}
@@ -577,7 +646,12 @@ export default function App() {
               LEAVE CO-OP
             </button>
           ) : (
-            high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>
+            <>
+              <button className="btn btn-ghost" onClick={quitToMenu}>
+                MENU
+              </button>
+              {high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>}
+            </>
           )}
         </Overlay>
       )}

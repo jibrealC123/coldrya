@@ -160,7 +160,10 @@ export class Engine {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.onState = onState || (() => {});
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // cap the backing-store resolution: shadowBlur cost scales with pixel
+    // count, so 1.5x keeps glows smooth on retina/fullscreen without the
+    // 2x pixel tax that caused frame drops at ~5K.
+    this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
 
     this.keys = new Set();
     this.pointer = { x: null, y: null, active: false };
@@ -344,6 +347,17 @@ export class Engine {
       this.flagImgs.set(code, img);
     }
     return img.complete && img.naturalWidth ? img : null;
+  }
+
+  // Quit a solo run straight back to the menu.
+  quitToMenu() {
+    this.running = false;
+    cancelAnimationFrame(this.rafId);
+    this.mp = false;
+    this.net = null;
+    this.snap = null;
+    this.status = "menu";
+    this._emit();
   }
 
   pause() {
@@ -812,7 +826,7 @@ export class Engine {
       ctx.save();
       ctx.translate(pw.x, pw.y);
       ctx.rotate(pw.spin);
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = 9;
       ctx.shadowColor = COLORS.power;
       ctx.strokeStyle = COLORS.power;
       ctx.lineWidth = 2;
@@ -827,7 +841,7 @@ export class Engine {
     }
 
     // player bullets
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 5;
     ctx.shadowColor = COLORS.bullet;
     ctx.fillStyle = COLORS.bullet;
     for (const b of this.bullets) {
@@ -870,7 +884,7 @@ export class Engine {
       ctx.strokeStyle = COLORS.power;
       ctx.globalAlpha = 0.4 + 0.3 * Math.sin(performance.now() / 120);
       ctx.lineWidth = 2;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 5;
       ctx.shadowColor = COLORS.power;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -911,7 +925,7 @@ export class Engine {
     grad.addColorStop(1, "rgba(255,248,160,0)");
     ctx.save();
     ctx.globalAlpha = 0.7 + Math.random() * 0.3;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 7;
     ctx.shadowColor = "#ff9000";
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -925,7 +939,7 @@ export class Engine {
     // ship body (crisp pixels)
     const smooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 9;
     ctx.shadowColor = remote ? "#4ade80" : COLORS.playerGlow;
     ctx.drawImage(sprite, ox, oy, w, h);
     ctx.shadowBlur = 0;
@@ -955,7 +969,7 @@ export class Engine {
 
     const smooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 9;
     ctx.shadowColor = COLORS.enemyGlow;
     // hit flash: tint white briefly while damaged
     if (e.hp < e.maxHp) ctx.globalAlpha = 0.85 + 0.15 * Math.sin(performance.now() / 60);
@@ -1112,7 +1126,7 @@ export class Engine {
       for (const [px, py, type] of snap.pw) {
         ctx.save();
         ctx.translate(px, py);
-        ctx.shadowBlur = 14;
+        ctx.shadowBlur = 9;
         ctx.shadowColor = COLORS.power;
         ctx.strokeStyle = COLORS.power;
         ctx.lineWidth = 2;
@@ -1134,7 +1148,7 @@ export class Engine {
       ctx.globalAlpha = 1;
 
       // player bullets
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 5;
       ctx.shadowColor = COLORS.bullet;
       ctx.fillStyle = COLORS.bullet;
       for (const [bx, by] of snap.pb) ctx.fillRect(bx - 2, by - 6, 4, 12);
@@ -1212,7 +1226,7 @@ export class Engine {
       ctx.arc(0, 0, 25, 0, Math.PI * 2);
       ctx.strokeStyle = COLORS.power;
       ctx.lineWidth = 2;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 5;
       ctx.shadowColor = COLORS.power;
       ctx.stroke();
     }
