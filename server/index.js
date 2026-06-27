@@ -55,35 +55,102 @@ const cleanCountry = (v) =>
   (String(v ?? 'us').toLowerCase().match(/[a-z]/g) || ['u', 's']).join('').slice(0, 2) || 'us';
 
 /* ── global leaderboard (shared across all players) ──────────────────────
-   Top scores live on the cloud server so everyone sees the same board. It's
-   persisted to a JSON file next to the server; on a free host the file may
-   reset on redeploy/cold-start, but it's shared in real time while warm. */
+   Top scores live on the cloud server so everyone sees the same board.
+   - If DATABASE_URL is set, scores persist in Postgres → permanent, they
+     survive redeploys and cold starts.
+   - Otherwise they fall back to a local JSON file (fine for dev / LAN, but
+     ephemeral on a free host).
+   An in-memory mirror is the source for GET responses (fast, no DB hit per
+   request); it's loaded at startup and refreshed on every submit. */
 const LB_MAX = 10;
 const LB_FILE = process.env.LEADERBOARD_FILE || path.join(__dirname, "leaderboard.json");
 const MAX_SCORE = 5_000_000; // clamp absurd/forged values
+const DATABASE_URL = process.env.DATABASE_URL;
 let leaderboard = [];
-try {
-  const raw = JSON.parse(fs.readFileSync(LB_FILE, "utf8"));
-  if (Array.isArray(raw)) leaderboard = raw.filter((e) => e && typeof e.score === "number");
-} catch {
-  /* no file yet */
+let pgPool = null;
+
+function pushToMirror(entry) {
+  leaderboard.push(entry);
+  leaderboard.sort((a, b) => b.score - a.score);
+  leaderboard = leaderboard.slice(0, LB_MAX);
 }
+
+async function queryTopFromDb() {
+  const r = await pgPool.query(
+    "SELECT name, country, score, ts FROM scores ORDER BY score DESC, ts ASC LIMIT $1",
+    [LB_MAX]
+  );
+  return r.rows.map((x) => ({ name: x.name, country: x.country, score: x.score, ts: Number(x.ts) }));
+}
+
+// Load the board at startup from Postgres (if configured) or the file.
+async function initLeaderboard() {
+  if (DATABASE_URL) {
+    try {
+      const { default: pg } = await import("pg");
+      pgPool = new pg.Pool({
+        connectionString: DATABASE_URL,
+        ssl: { rejectUnauthorized: false }, // managed Postgres (Neon/Render) needs TLS
+        max: 3,
+      });
+      await pgPool.query(
+        `CREATE TABLE IF NOT EXISTS scores (
+           id BIGSERIAL PRIMARY KEY,
+           name TEXT NOT NULL,
+           country TEXT NOT NULL,
+           score INTEGER NOT NULL,
+           ts BIGINT NOT NULL
+         )`
+      );
+      await pgPool.query("CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC)");
+      leaderboard = await queryTopFromDb();
+      console.log(`Leaderboard: Postgres (permanent) — ${leaderboard.length} scores loaded`);
+      return;
+    } catch (e) {
+      pgPool = null;
+      console.error("Leaderboard: Postgres init failed, falling back to file —", e.message);
+    }
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(LB_FILE, "utf8"));
+    if (Array.isArray(raw)) leaderboard = raw.filter((e) => e && typeof e.score === "number");
+  } catch {
+    /* no file yet */
+  }
+  console.log("Leaderboard: local file (ephemeral on free hosts)");
+}
+
 let lbSaveTimer = null;
-function saveLeaderboard() {
-  // debounce disk writes so a burst of submissions doesn't thrash the FS
-  if (lbSaveTimer) return;
+function saveLeaderboardFile() {
+  if (lbSaveTimer) return; // debounce disk writes
   lbSaveTimer = setTimeout(() => {
     lbSaveTimer = null;
     fs.writeFile(LB_FILE, JSON.stringify(leaderboard), () => {});
   }, 1000);
 }
-function addLeaderboardScore(name, country, score) {
+
+async function addLeaderboardScore(name, country, score) {
   const s = Math.floor(clamp(Number(score) || 0, 0, MAX_SCORE));
   if (s <= 0) return leaderboard;
-  leaderboard.push({ name: cleanName(name), country: cleanCountry(country), score: s, ts: Date.now() });
-  leaderboard.sort((a, b) => b.score - a.score);
-  leaderboard = leaderboard.slice(0, LB_MAX);
-  saveLeaderboard();
+  const entry = { name: cleanName(name), country: cleanCountry(country), score: s, ts: Date.now() };
+  if (pgPool) {
+    try {
+      await pgPool.query("INSERT INTO scores (name, country, score, ts) VALUES ($1, $2, $3, $4)", [
+        entry.name,
+        entry.country,
+        entry.score,
+        entry.ts,
+      ]);
+      leaderboard = await queryTopFromDb();
+      return leaderboard;
+    } catch (e) {
+      console.error("Leaderboard: DB write failed, mirroring in memory —", e.message);
+      pushToMirror(entry); // keep serving something even if the DB hiccups
+      return leaderboard;
+    }
+  }
+  pushToMirror(entry);
+  saveLeaderboardFile();
   return leaderboard;
 }
 
@@ -156,9 +223,15 @@ function createRequestHandler(DIST) {
             res.writeHead(400);
             return res.end("[]");
           }
-          const board = addLeaderboardScore(msg?.name, msg?.country, msg?.score);
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(board));
+          addLeaderboardScore(msg?.name, msg?.country, msg?.score)
+            .then((board) => {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify(board));
+            })
+            .catch(() => {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify(leaderboard));
+            });
         });
         return;
       }
@@ -503,6 +576,7 @@ function snapshot(room) {
 let pid = 1;
 
 export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
+  initLeaderboard(); // load Postgres/file board (async; GET serves [] until ready)
   const server = http.createServer(createRequestHandler(distPath));
   // small payload cap + no compression (deflate is a needless DoS surface here)
   const wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD, perMessageDeflate: false });
