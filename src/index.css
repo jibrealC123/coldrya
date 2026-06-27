@@ -638,17 +638,48 @@ kbd {
   padding: 2px 4px;
 }
 
-/* ── Leaderboard (menu) ───────────────────────────────────────────── */
-.leaderboard {
+/* ── Menu: two columns (actions on the left, leaderboard list on the right) */
+.overlay.menu-overlay .overlay-panel {
+  max-width: 1040px;
+}
+.menu-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  width: 100%;
+}
+.menu-main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 340px;
-  padding: 14px 16px;
+  gap: 14px;
+  flex: 0 1 auto;
+}
+
+/* ── Leaderboard (side list) ──────────────────────────────────────── */
+.leaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px;
   border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: 8px;
   background: rgba(37, 99, 235, 0.06);
+}
+.menu-board {
+  flex: 1 1 440px;
+  width: min(480px, 92vw);
+  align-self: stretch;
+}
+.lb-title {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--c-red);
+  text-align: center;
+  margin-bottom: 4px;
 }
 .lb-list {
   list-style: none;
@@ -657,56 +688,57 @@ kbd {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .lb-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px 40px 1fr auto;
   align-items: center;
-  gap: 8px;
+  column-gap: 16px; /* clear separation between rank · flag · name · score */
+  padding: 6px 8px;
+  border-radius: 5px;
   font-family: var(--font-term);
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.82);
-}
-.lb-row:first-child .lb-score {
-  color: var(--c-green);
-  text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+  font-size: 23px;
+  color: rgba(255, 255, 255, 0.88);
 }
 .lb-rank {
   font-family: var(--font-pixel);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--c-blue-glow);
-  width: 14px;
   text-align: center;
 }
 .lb-flag {
-  width: 22px;
-  height: 15px;
+  width: 34px;
+  height: 23px;
   object-fit: cover;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.lb-namewrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  min-width: 0;
 }
 .lb-name {
-  flex: 1;
-  min-width: 0; /* allow shrink/ellipsis so the badge has room */
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #e7edf5;
+  white-space: normal;
+  word-break: break-word; /* full names — wrap instead of truncating */
 }
 .lb-score {
   font-family: var(--font-pixel);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: 17px;
+  color: rgba(255, 255, 255, 0.92);
+  justify-self: end;
 }
-/* "THE HIGHEST SCORE" badge next to the #1 pilot */
+/* "THE HIGHEST SCORE" badge + gold treatment for the #1 pilot */
 .lb-row.top {
-  background: rgba(253, 224, 71, 0.07);
-  box-shadow: inset 2px 0 0 #fde047;
+  background: rgba(253, 224, 71, 0.08);
+  box-shadow: inset 3px 0 0 #fde047;
 }
 .lb-crown {
-  flex: none;
   font-family: var(--font-pixel);
-  font-size: 6px;
+  font-size: 7px;
   letter-spacing: 0.5px;
   color: #fde047;
   background: rgba(253, 224, 71, 0.12);

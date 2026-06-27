@@ -641,71 +641,77 @@ export default function App() {
 
       {/* MENU */}
       {status === "menu" && coopPhase === "idle" && (
-        <Overlay>
-          <h1 className="title">
-            COLD<span className="title-accent">RYA</span>
-          </h1>
-          {pilot && (
-            <p className="pilot-greet">
-              <img src={flagUrl(pilot.country.code, 40)} alt={pilot.country.name} className="greet-flag" />
-              PILOT <span className="pilot-name">{pilot.username}</span>
-            </p>
-          )}
-          <button className="btn btn-primary" onClick={startSolo}>
-            SINGLE PLAYER
-          </button>
-
-          <div className="coop-box">
-            <span className="coop-title">CO-OP — PLAY WITH FRIENDS</span>
-
-            {/* Host: generate a fresh shareable code */}
-            <button className="btn btn-coop coop-create" onClick={createRoom}>
-              CREATE ROOM
-            </button>
-            <span className="coop-hint">Generates a code — share it with friends.</span>
-
-            <div className="coop-divider">
-              <span>OR JOIN A CODE</span>
-            </div>
-
-            {/* Friend: enter an existing code */}
-            <div className="coop-row">
-              <input
-                className="reg-input coop-input"
-                placeholder="ROOM CODE"
-                value={room}
-                maxLength={8}
-                onChange={(e) => setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-                aria-label="Room code"
-              />
-              <button className="btn btn-coop" onClick={() => joinCoop()} disabled={!room.trim()}>
-                JOIN
+        <Overlay className="menu-overlay">
+          <div className="menu-layout">
+            <div className="menu-main">
+              <h1 className="title">
+                COLD<span className="title-accent">RYA</span>
+              </h1>
+              {pilot && (
+                <p className="pilot-greet">
+                  <img src={flagUrl(pilot.country.code, 40)} alt={pilot.country.name} className="greet-flag" />
+                  PILOT <span className="pilot-name">{pilot.username}</span>
+                </p>
+              )}
+              <button className="btn btn-primary" onClick={startSolo}>
+                SINGLE PLAYER
               </button>
+
+              <div className="coop-box">
+                <span className="coop-title">CO-OP — PLAY WITH FRIENDS</span>
+
+                {/* Host: generate a fresh shareable code */}
+                <button className="btn btn-coop coop-create" onClick={createRoom}>
+                  CREATE ROOM
+                </button>
+                <span className="coop-hint">Generates a code — share it with friends.</span>
+
+                <div className="coop-divider">
+                  <span>OR JOIN A CODE</span>
+                </div>
+
+                {/* Friend: enter an existing code */}
+                <div className="coop-row">
+                  <input
+                    className="reg-input coop-input"
+                    placeholder="ROOM CODE"
+                    value={room}
+                    maxLength={8}
+                    onChange={(e) => setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                    aria-label="Room code"
+                  />
+                  <button className="btn btn-coop" onClick={() => joinCoop()} disabled={!room.trim()}>
+                    JOIN
+                  </button>
+                </div>
+              </div>
+
+              <button className="btn-link" onClick={editPilot}>
+                change pilot
+              </button>
+              {high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>}
+              <Controls />
             </div>
+
+            {leaderboard.length > 0 && (
+              <div className="leaderboard menu-board">
+                <span className="lb-title">TOP PILOTS · GLOBAL</span>
+                <ol className="lb-list">
+                  {leaderboard.map((e, i) => (
+                    <li key={i} className={`lb-row${i === 0 ? " top" : ""}`}>
+                      <span className="lb-rank">{i + 1}</span>
+                      <Flag code={e.country} w={40} className="lb-flag" />
+                      <span className="lb-namewrap">
+                        <span className="lb-name">{e.name}</span>
+                        {i === 0 && <span className="lb-crown">THE HIGHEST SCORE</span>}
+                      </span>
+                      <span className="lb-score">{String(e.score).padStart(6, "0")}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
-
-          {leaderboard.length > 0 && (
-            <div className="leaderboard">
-              <span className="coop-title">TOP PILOTS · GLOBAL</span>
-              <ol className="lb-list">
-                {leaderboard.map((e, i) => (
-                  <li key={i} className={`lb-row${i === 0 ? " top" : ""}`}>
-                    <span className="lb-rank">{i + 1}</span>
-                    <Flag code={e.country} w={20} className="lb-flag" />
-                    <span className="lb-name">{e.name}</span>
-                    {i === 0 && <span className="lb-crown">THE HIGHEST SCORE</span>}
-                    <span className="lb-score">{String(e.score).padStart(6, "0")}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-
-          <button className="btn-link" onClick={editPilot}>
-            change pilot
-          </button>
-          {high > 0 && <p className="high">BEST {String(high).padStart(6, "0")}</p>}
-          <Controls />
         </Overlay>
       )}
 
