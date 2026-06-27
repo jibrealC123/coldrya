@@ -68,6 +68,7 @@ const MAX_SCORE = 5_000_000; // clamp absurd/forged values
 const DATABASE_URL = process.env.DATABASE_URL;
 let leaderboard = [];
 let pgPool = null;
+let lbInitError = ""; // last Postgres init error (surfaced via diagnostic header)
 
 function pushToMirror(entry) {
   leaderboard.push(entry);
@@ -108,6 +109,7 @@ async function initLeaderboard() {
       return;
     } catch (e) {
       pgPool = null;
+      lbInitError = e.message || String(e);
       console.error("Leaderboard: Postgres init failed, falling back to file —", e.message);
     }
   }
@@ -201,8 +203,11 @@ function createRequestHandler(DIST) {
         return res.end();
       }
       if (req.method === "GET") {
-        // diagnostic: is the board on the permanent DB or the ephemeral file?
+        // diagnostics: where is the board stored, is the env var present, and
+        // (if Postgres failed) what was the error?
         res.setHeader("X-Leaderboard-Store", pgPool ? "postgres" : "file");
+        res.setHeader("X-Leaderboard-Db-Url-Set", DATABASE_URL ? "yes" : "no");
+        if (lbInitError) res.setHeader("X-Leaderboard-Db-Error", lbInitError.slice(0, 180));
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify(leaderboard));
       }
