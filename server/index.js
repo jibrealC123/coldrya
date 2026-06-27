@@ -68,7 +68,6 @@ const MAX_SCORE = 5_000_000; // clamp absurd/forged values
 const DATABASE_URL = process.env.DATABASE_URL;
 let leaderboard = [];
 let pgPool = null;
-let lbInitError = ""; // last Postgres init error (surfaced via diagnostic header)
 
 function pushToMirror(entry) {
   leaderboard.push(entry);
@@ -109,7 +108,6 @@ async function initLeaderboard() {
       return;
     } catch (e) {
       pgPool = null;
-      lbInitError = e.message || String(e);
       console.error("Leaderboard: Postgres init failed, falling back to file —", e.message);
     }
   }
