@@ -305,7 +305,7 @@ export class Engine {
       if (this.prevMyLives != null && me.lives < this.prevMyLives) {
         this.hurt = 0.5;
         this.freeze = 0.12;
-        this.shake = 0.32;
+        this.shake = 0.55; // stronger tremor on a real hit
         if (this.me) this.me.slow = HIT_SLOW_TIME; // crippled engines after a hit
       }
       this.prevMyLives = me.lives;
@@ -630,7 +630,9 @@ export class Engine {
     // enemy fire steps up each tier: faster bullets, shorter cooldown, one
     // extra bullet per shot (spread burst)
     const bulletSpeed = Math.min(340 + tier * 60, 640);
-    const shots = Math.min(1 + tier, 5);
+    // multi-bullet spread holds off until wave 8 so early waves stay readable,
+    // then grows gently and caps at 3 (was: started wave 4, up to 5 at once)
+    const shots = this.wave < 8 ? 1 : Math.min(2 + Math.floor((this.wave - 8) / 3), 3);
     const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7) / g;
 
     // enemies
@@ -687,11 +689,14 @@ export class Engine {
   _spawnEnemy(g = 1) {
     const tier = Math.floor((this.wave - 1) / 3);
     const tough = Math.random() < clamp(0.16 + this.wave * 0.03, 0, 0.55);
+    // steady descent at the start, then accelerates each wave (fast → faster
+    // → faster) via a small quadratic term, capped so it stays dodgeable.
+    const speedBonus = Math.min(this.wave * 8 + this.wave * this.wave * 0.5, 360);
     this.enemies.push({
       x: rand(30, this.W - 30),
       y: -30,
       r: tough ? 20 : 14,
-      vy: (rand(90, 150) + this.wave * 8) * (0.5 + 0.5 * g), // calm → slower descent
+      vy: (rand(90, 150) + speedBonus) * (0.5 + 0.5 * g), // calm → slower descent
       sway: rand(30, 95),
       phase: rand(0, Math.PI * 2),
       hp: tough ? 3 : 1,
@@ -801,7 +806,7 @@ export class Engine {
             this._addXp(3); // kill bonus
             this._explode(e.x, e.y, e.r);
             this.shake = 0.12;
-            if (Math.random() < 0.12) this._dropPower(e.x, e.y);
+            if (Math.random() < 0.2) this._dropPower(e.x, e.y);
             this._emit();
           }
         }
@@ -844,7 +849,7 @@ export class Engine {
     this.lives -= 1;
     p.invuln = 1.4;
     p.slow = HIT_SLOW_TIME; // engines crippled for a few seconds
-    this.shake = 0.32;
+    this.shake = 0.55; // stronger tremor on a real hit
     this.hurt = 0.5; // red zap flash
     this.freeze = 0.12; // brief hitstop
     this._explode(p.x, p.y, p.r);
@@ -858,7 +863,9 @@ export class Engine {
   }
 
   _dropPower(x, y) {
-    const types = ["triple", "rapid", "shield"];
+    // weighted so the survival pickups (rapid-fire + shield) drop more often
+    // than before — shield is the most common to help with the faster waves
+    const types = ["triple", "rapid", "rapid", "shield", "shield", "shield"];
     this.powerups.push({
       x,
       y,

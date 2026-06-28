@@ -426,12 +426,15 @@ function roundIntensity(room) {
 function spawnEnemy(room, intensity = 1) {
   const tier = Math.floor((room.wave - 1) / 3);
   const tough = Math.random() < clamp(0.16 + room.wave * 0.03, 0, 0.55);
+  // steady descent at the start, then accelerates each wave (fast → faster
+  // → faster) via a small quadratic term, capped so it stays dodgeable.
+  const speedBonus = Math.min(room.wave * 8 + room.wave * room.wave * 0.5, 360);
   room.enemies.push({
     id: room.enemyId++,
     x: rand(40, WORLD.w - 40),
     y: -30,
     r: tough ? 20 : 14,
-    vy: (rand(90, 150) + room.wave * 8) * (0.5 + 0.5 * intensity), // calm → slower descent
+    vy: (rand(90, 150) + speedBonus) * (0.5 + 0.5 * intensity), // calm → slower descent
     sway: rand(30, 95),
     phase: rand(0, Math.PI * 2),
     hp: tough ? 3 : 1,
@@ -602,7 +605,9 @@ function tick(room, dt) {
   // enemy fire steps up each tier: faster bullets, shorter cooldown, one
   // extra bullet per shot (spread burst)
   const bulletSpeed = Math.min(340 + tier * 60, 640);
-  const shots = Math.min(1 + tier, 5);
+  // multi-bullet spread holds off until wave 8 so early waves stay readable,
+  // then grows gently and caps at 3 (was: started wave 4, up to 5 at once)
+  const shots = room.wave < 8 ? 1 : Math.min(2 + Math.floor((room.wave - 8) / 3), 3);
   const fireBase = clamp(1.7 - tier * 0.25, 0.45, 1.7) / intensity; // calm → longer between shots
 
   // enemies
@@ -653,9 +658,11 @@ function tick(room, dt) {
           room.teamScore += e.score;
           if (shooter) addXp(shooter, 3); // kill bonus
           e.dead = true;
-          if (Math.random() < 0.12) {
-            const types = ["triple", "rapid", "shield"];
-            room.powerups.push({ x: e.x, y: e.y, r: 12, type: types[(Math.random() * 3) | 0] });
+          if (Math.random() < 0.2) {
+            // weighted toward survival pickups (rapid + shield), shield most
+            // common — helps with the faster waves
+            const types = ["triple", "rapid", "rapid", "shield", "shield", "shield"];
+            room.powerups.push({ x: e.x, y: e.y, r: 12, type: types[(Math.random() * types.length) | 0] });
           }
           break;
         }
