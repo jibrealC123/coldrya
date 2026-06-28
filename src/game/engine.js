@@ -246,11 +246,13 @@ export class Engine {
     this.spawnTimer = 0;
     this.shake = 0;
     this.grace = false; // calm warm-up while the villain talks (set by the UI)
-    // The Gus's lightning storms — armed at wave 5, recur every 3 min
+    // The Gus's lightning storms — armed at wave 5, recur every 50s. Each bolt
+    // the pilot dodges ramps `dodges`, making later bolts faster + stronger.
     this.lightning = [];
     this.storm = null;
     this.stormPhase = null;
     this.lightningTimer = 1e9;
+    this.dodges = 0;
     this.status = "playing";
     this._emit();
 
@@ -774,7 +776,7 @@ export class Engine {
         }
         if (s.t >= s.duration && this.lightning.length === 0) {
           this.storm = null; // storm over → enemies return
-          this.lightningTimer = 180; // next one in 3 minutes
+          this.lightningTimer = 50; // next one in 50 seconds
           this._setStormPhase(null);
         }
       }
@@ -792,17 +794,24 @@ export class Engine {
       } else {
         b.lock = true; // committed
       }
-      if (b.t >= b.warn && b.t < b.warn + b.strike && p && p.invuln <= 0) {
-        if (Math.abs(p.x - b.x) < b.half) this._hitPlayer();
+      if (b.t >= b.warn) {
+        b.struck = true; // it has entered (or passed) its strike window
+        if (b.t < b.warn + b.strike && p && p.invuln <= 0 && Math.abs(p.x - b.x) < b.half) {
+          this._hitPlayer();
+          b.hit = true;
+        }
       }
-      return b.t < b.warn + b.strike + 0.18;
+      const alive = b.t < b.warn + b.strike + 0.18;
+      // a bolt that struck and missed = a dodge → ramp the storm (faster/stronger)
+      if (!alive && b.struck && !b.hit) this.dodges = Math.min(this.dodges + 1, 12);
+      return alive;
     });
   }
 
   _startStorm() {
     const hard = this.wave >= 10; // wave 10+ → stronger, harder to dodge
     // intro = the caption taunt (no bolts); then the active bolt barrage
-    this.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 8 : 6, spawnCd: 0.25, hard };
+    this.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 11 : 9, spawnCd: 0.25, hard };
     this.enemies = []; // enemies disappear for the storm
     this.enemyBullets = [];
     this.shake = 0.3;
@@ -817,14 +826,19 @@ export class Engine {
   }
 
   _spawnBolt(hard) {
+    // each dodge ramps the storm: faster telegraph (shorter warn) + a wider,
+    // stronger kill zone, capped so it stays survivable
+    const esc = Math.min(this.dodges, 12);
     this.lightning.push({
       x: this.player ? this.player.x : this.W / 2,
       t: 0,
-      warn: hard ? 0.7 : 0.9,
+      warn: Math.max(0.3, (hard ? 0.7 : 0.9) - esc * 0.035),
       strike: 0.34,
-      half: hard ? 52 : 42, // big, thick kill zone
+      half: Math.min(90, (hard ? 52 : 42) + esc * 3), // big, thick kill zone
       lockLead: hard ? 0.22 : 0.32, // shorter reaction window when hard
       lock: false,
+      hit: false,
+      struck: false,
       seed: (Math.random() * 1e6) | 0,
     });
   }

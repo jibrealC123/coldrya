@@ -371,7 +371,8 @@ function getRoom(code) {
       chat: [], // recent chat messages (last LB-ish few, for late joiners)
       lightning: [], // active storm bolts
       storm: null, // active lightning storm
-      lightningTimer: 1e9, // armed after wave 4, then every 3 min
+      lightningTimer: 1e9, // armed at wave 5, then every 50s
+      dodges: 0, // bolts dodged → storms ramp faster + stronger
     };
     rooms.set(code, room);
   }
@@ -386,6 +387,7 @@ function resetRoom(room) {
   room.lightning = [];
   room.storm = null;
   room.lightningTimer = 1e9;
+  room.dodges = 0;
   room.wave = 1;
   room.waveTimer = 0;
   room.spawnTimer = 0;
@@ -451,19 +453,21 @@ function spawnEnemy(room, intensity = 1) {
 function startStorm(room) {
   const hard = room.wave >= 10; // wave 10+ → stronger, harder to dodge
   // intro = the caption taunt (no bolts); then the active bolt barrage
-  room.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 8 : 6, spawnCd: 0.25, hard };
+  room.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 11 : 9, spawnCd: 0.25, hard };
   room.enemies = []; // enemies vanish for the storm
   room.ebullets = [];
 }
 function spawnBolt(room, hard) {
   const targets = [...room.players.values()].filter((p) => p.alive);
   const tgt = targets.length ? targets[(Math.random() * targets.length) | 0] : null;
+  // each dodge ramps the storm: faster telegraph + wider kill zone, capped
+  const esc = Math.min(room.dodges || 0, 12);
   room.lightning.push({
     x: tgt ? tgt.x : rand(40, WORLD.w - 40),
     t: 0,
-    warn: hard ? 0.7 : 0.9,
+    warn: Math.max(0.3, (hard ? 0.7 : 0.9) - esc * 0.035),
     strike: 0.34,
-    half: hard ? 52 : 42, // big, thick kill zone
+    half: Math.min(90, (hard ? 52 : 42) + esc * 3), // big, thick kill zone
     lockLead: hard ? 0.22 : 0.32,
     lock: false,
     targetId: tgt ? tgt.id : null,
@@ -491,7 +495,7 @@ function updateLightning(room, dt) {
       }
       if (s.t >= s.duration && room.lightning.length === 0) {
         room.storm = null; // enemies return
-        room.lightningTimer = 180; // next storm in 3 min
+        room.lightningTimer = 50; // next storm in 50 seconds
       }
     }
   } else if (room.wave >= 5) {
@@ -507,12 +511,21 @@ function updateLightning(room, dt) {
     } else {
       b.lock = true;
     }
-    if (b.t >= b.warn && b.t < b.warn + b.strike) {
-      for (const p of room.players.values()) {
-        if (p.alive && p.invuln <= 0 && Math.abs(p.x - b.x) < b.half) hitPlayer(p);
+    if (b.t >= b.warn) {
+      b.struck = true; // entered (or passed) its strike window
+      if (b.t < b.warn + b.strike) {
+        for (const p of room.players.values()) {
+          if (p.alive && p.invuln <= 0 && Math.abs(p.x - b.x) < b.half) {
+            hitPlayer(p);
+            b.hit = true;
+          }
+        }
       }
     }
-    return b.t < b.warn + b.strike + 0.18;
+    const alive = b.t < b.warn + b.strike + 0.18;
+    // a bolt that struck and hit nobody = a dodge → ramp the storm
+    if (!alive && b.struck && !b.hit) room.dodges = Math.min((room.dodges || 0) + 1, 12);
+    return alive;
   });
 }
 
