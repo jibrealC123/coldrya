@@ -399,6 +399,8 @@ function resetRoom(room) {
     p.triple = 0;
     p.rapid = 0;
     p.shield = 0;
+    p.omni = 0;
+    p.overdrive = 0;
     p.xp = 0;
     p.level = 1;
     p.xpNext = xpForLevel(1);
@@ -574,13 +576,24 @@ function tick(room, dt) {
     p.triple = Math.max(0, p.triple - dt);
     p.rapid = Math.max(0, p.rapid - dt);
     p.shield = Math.max(0, p.shield - dt);
+    p.omni = Math.max(0, (p.omni || 0) - dt);
+    p.overdrive = Math.max(0, (p.overdrive || 0) - dt);
+    if (p.overdrive > 0) p.invuln = Math.max(p.invuln, 0.15); // invincible while overdriving
     if (!p.alive || room.over) continue;
     if (p.firing && p.cooldown <= 0) {
       const rate = p.rapid > 0 ? 0.12 * 0.45 : 0.12;
       p.cooldown = rate;
       const sp = 760;
       const o = p.id; // bullet owner → who earns the XP on hit
-      if (p.triple > 0) {
+      if (p.omni > 0) {
+        // radial barrage — bullets stream out in every direction
+        const N = 16;
+        const phase = p.omni * 2.2;
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2 + phase;
+          room.pbullets.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: o });
+        }
+      } else if (p.triple > 0) {
         room.pbullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -sp, owner: o });
         room.pbullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -sp, owner: o });
         room.pbullets.push({ x: p.x, y: p.y - 12, vx: 160, vy: -sp, owner: o });
@@ -590,11 +603,11 @@ function tick(room, dt) {
     }
   }
 
-  // bullets
+  // bullets (cull on every edge — omni-fire sends them in all directions)
   room.pbullets = room.pbullets.filter((b) => {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
-    return b.y > -20 && b.x > -20 && b.x < WORLD.w + 20;
+    return b.y > -20 && b.y < WORLD.h + 20 && b.x > -20 && b.x < WORLD.w + 20;
   });
   room.ebullets = room.ebullets.filter((b) => {
     b.x += b.vx * dt;
@@ -639,6 +652,16 @@ function tick(room, dt) {
         if (pw.type === "triple") p.triple = 8;
         else if (pw.type === "rapid") p.rapid = 8;
         else if (pw.type === "shield") p.shield = 10;
+        else if (pw.type === "heal") p.lives = Math.min(p.lives + 1, 5);
+        else if (pw.type === "omni") p.omni = 8;
+        else if (pw.type === "overdrive") { p.overdrive = 4; p.invuln = 4; }
+        else if (pw.type === "nuke") {
+          // screen-clear: wipe every enemy (team score + XP for the picker) and
+          // all incoming fire
+          for (const e of room.enemies) { room.teamScore += e.score; addXp(p, 2); e.dead = true; }
+          room.enemies = room.enemies.filter((en) => !en.dead);
+          room.ebullets = [];
+        }
         return false;
       }
     }
@@ -659,9 +682,15 @@ function tick(room, dt) {
           if (shooter) addXp(shooter, 3); // kill bonus
           e.dead = true;
           if (Math.random() < 0.2) {
-            // weighted toward survival pickups (rapid + shield), shield most
-            // common — helps with the faster waves
-            const types = ["triple", "rapid", "rapid", "shield", "shield", "shield"];
+            // commons (triple/rapid/shield) drop often; heal a bit less; the
+            // showpiece buffs (nuke/omni/overdrive) are rare treats (~7% each)
+            const types = [
+              "triple", "triple", "triple",
+              "rapid", "rapid", "rapid",
+              "shield", "shield", "shield",
+              "heal", "heal",
+              "nuke", "omni", "overdrive",
+            ];
             room.powerups.push({ x: e.x, y: e.y, r: 12, type: types[(Math.random() * types.length) | 0] });
           }
           break;
@@ -671,6 +700,19 @@ function tick(room, dt) {
   }
   room.pbullets = room.pbullets.filter((b) => !b.dead);
   room.enemies = room.enemies.filter((e) => !e.dead && e.y < WORLD.h + 40);
+
+  // overdrive: ram straight through enemies, vaporising them on contact
+  for (const p of room.players.values()) {
+    if (!p.alive || p.overdrive <= 0) continue;
+    for (const e of room.enemies) {
+      if (!e.dead && d2(e.x, e.y, p.x, p.y) < (e.r + 22) ** 2) {
+        e.dead = true;
+        room.teamScore += e.score;
+        addXp(p, 2);
+      }
+    }
+  }
+  room.enemies = room.enemies.filter((e) => !e.dead);
 
   // collisions vs players
   for (const p of room.players.values()) {
@@ -739,6 +781,8 @@ function snapshot(room) {
       alive: p.alive,
       shield: p.shield > 0,
       invuln: p.invuln > 0,
+      od: p.overdrive > 0,
+      om: p.omni > 0,
       ready: !!p.ready,
       xp: p.xp,
       lvl: p.level,
@@ -849,6 +893,8 @@ export function startServer({ port = PORT, distPath = DEFAULT_DIST } = {}) {
           triple: 0,
           rapid: 0,
           shield: 0,
+          omni: 0,
+          overdrive: 0,
           ready: false,
           xp: 0,
           level: 1,

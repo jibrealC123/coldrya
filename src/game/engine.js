@@ -11,6 +11,22 @@ const xpForLevel = (level) => 30 + (level - 1) * 20;
 // taking a hit briefly cripples engine speed, then it recovers
 const HIT_SLOW_TIME = 4.5; // seconds slowed after a hit
 const HIT_SLOW_FACTOR = 0.45; // speed multiplier while slowed
+// special buff pickups (player feedback): heal, screen-clear nuke, radial
+// omni-fire and an invincible "overdrive" ram
+const MAX_LIVES = 5; // heal can stock spare ships up to here
+const OMNI_TIME = 8; // radial "shoot everywhere" duration
+const OVERDRIVE_TIME = 4; // invincible ram + speed-boost duration
+// powerup look: glow colour + glyph per type (commons stay green; the new
+// showpiece buffs each get their own colour so they read at a glance)
+const POWER_META = {
+  triple: { c: "#22C55E", g: "T" },
+  rapid: { c: "#22C55E", g: "R" },
+  shield: { c: "#22C55E", g: "S" },
+  heal: { c: "#ff5a8a", g: "+" },
+  nuke: { c: "#ffd23f", g: "N" },
+  omni: { c: "#c77dff", g: "O" },
+  overdrive: { c: "#39e0ff", g: "X" },
+};
 const dist2 = (ax, ay, bx, by) => {
   const dx = ax - bx;
   const dy = ay - by;
@@ -174,6 +190,7 @@ export class Engine {
     this.rafId = null;
     this.hurt = 0; // red "zap" flash timer
     this.freeze = 0; // hitstop timer
+    this.flash = 0; // white nuke-blast flash timer
 
     // multiplayer (co-op)
     this.mp = false;
@@ -211,6 +228,8 @@ export class Engine {
       rapid: 0,
       shield: 0,
       slow: 0,
+      omni: 0,
+      overdrive: 0,
     };
     this.bullets = [];
     this.enemyBullets = [];
@@ -255,6 +274,7 @@ export class Engine {
     this.shake = 0;
     this.hurt = 0;
     this.freeze = 0;
+    this.flash = 0;
     this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
     this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480, slow: 0 };
@@ -309,6 +329,11 @@ export class Engine {
         if (this.me) this.me.slow = HIT_SLOW_TIME; // crippled engines after a hit
       }
       this.prevMyLives = me.lives;
+      // active buff flags for my ship (movement boost + aura)
+      if (this.me) {
+        this.me.overdrive = !!me.od;
+        this.me.omni = !!me.om;
+      }
     }
     const nextStatus = snap.over ? "over" : "playing";
     const myLevel = me && me.lvl != null ? me.lvl : this.level;
@@ -511,8 +536,9 @@ export class Engine {
     if (!this.running) return;
     const dt = Math.min((ts - this.lastTs) / 1000, 0.05);
     this.lastTs = ts;
-    // hurt flash always fades on real time
+    // hurt/nuke flashes always fade on real time
     this.hurt = Math.max(0, (this.hurt || 0) - dt);
+    this.flash = Math.max(0, (this.flash || 0) - dt);
     if (this.freeze > 0) {
       // brief hitstop — world frozen, but still render the frame + flash
       this.freeze -= dt;
@@ -547,7 +573,9 @@ export class Engine {
     if (this.keys.has("arrowright") || this.keys.has("d")) dx += 1;
     if (this.keys.has("arrowup") || this.keys.has("w")) dy -= 1;
     if (this.keys.has("arrowdown") || this.keys.has("s")) dy += 1;
-    const slowK = p.slow > 0 ? HIT_SLOW_FACTOR : 1; // crippled engines after a hit
+    // overdrive supercharges the engines (and shrugs off the hit-slow)
+    const boost = p.overdrive > 0 ? 1.5 : 1;
+    const slowK = (p.slow > 0 && p.overdrive <= 0 ? HIT_SLOW_FACTOR : 1) * boost;
     if (dx || dy) {
       const len = Math.hypot(dx, dy) || 1;
       p.x += (dx / len) * p.speed * slowK * dt;
@@ -570,6 +598,9 @@ export class Engine {
     p.rapid = Math.max(0, p.rapid - dt);
     p.shield = Math.max(0, p.shield - dt);
     p.slow = Math.max(0, p.slow - dt);
+    p.omni = Math.max(0, p.omni - dt);
+    p.overdrive = Math.max(0, p.overdrive - dt);
+    if (p.overdrive > 0) p.invuln = Math.max(p.invuln, 0.15); // invincible while overdriving
     this.shake = Math.max(0, this.shake - dt);
 
     // firing
@@ -578,7 +609,15 @@ export class Engine {
     if (firing && p.cooldown <= 0) {
       p.cooldown = rate;
       const speed = 760;
-      if (p.triple > 0) {
+      if (p.omni > 0) {
+        // radial barrage — bullets stream out in every direction, slowly spinning
+        const N = 16;
+        const phase = p.omni * 2.2;
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2 + phase;
+          this.bullets.push({ x: p.x, y: p.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 4 });
+        }
+      } else if (p.triple > 0) {
         this.bullets.push({ x: p.x, y: p.y - 18, vx: 0, vy: -speed, r: 4 });
         this.bullets.push({ x: p.x, y: p.y - 12, vx: -160, vy: -speed, r: 4 });
         this.bullets.push({ x: p.x, y: p.y - 12, vx: 160, vy: -speed, r: 4 });
@@ -587,11 +626,11 @@ export class Engine {
       }
     }
 
-    // bullets
+    // bullets (cull on every edge — omni-fire sends them in all directions)
     this.bullets = this.bullets.filter((b) => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
-      return b.y > -20 && b.x > -20 && b.x < this.W + 20;
+      return b.y > -20 && b.y < this.H + 20 && b.x > -20 && b.x < this.W + 20;
     });
     this.enemyBullets = this.enemyBullets.filter((b) => {
       b.x += b.vx * dt;
@@ -792,6 +831,23 @@ export class Engine {
 
   _collisions() {
     const p = this.player;
+    // overdrive: ram straight through enemies, vaporising them on contact
+    if (p.overdrive > 0) {
+      let rammed = false;
+      for (const e of this.enemies) {
+        if (e.hp > 0 && dist2(e.x, e.y, p.x, p.y) < (p.r + e.r + 6) ** 2) {
+          e.hp = 0;
+          this.score += e.score;
+          this._addXp(2);
+          this._explode(e.x, e.y, e.r);
+          rammed = true;
+        }
+      }
+      if (rammed) {
+        this.enemies = this.enemies.filter((e) => e.hp > 0);
+        this._emit();
+      }
+    }
     // player bullets vs enemies
     for (const e of this.enemies) {
       for (const b of this.bullets) {
@@ -863,9 +919,15 @@ export class Engine {
   }
 
   _dropPower(x, y) {
-    // weighted so the survival pickups (rapid-fire + shield) drop more often
-    // than before — shield is the most common to help with the faster waves
-    const types = ["triple", "rapid", "rapid", "shield", "shield", "shield"];
+    // commons (triple/rapid/shield) drop often; heal a bit less; the showpiece
+    // buffs (nuke/omni/overdrive) are rare treats (~7% each)
+    const types = [
+      "triple", "triple", "triple",
+      "rapid", "rapid", "rapid",
+      "shield", "shield", "shield",
+      "heal", "heal",
+      "nuke", "omni", "overdrive",
+    ];
     this.powerups.push({
       x,
       y,
@@ -880,7 +942,32 @@ export class Engine {
     if (type === "triple") p.triple = 8;
     if (type === "rapid") p.rapid = 8;
     if (type === "shield") p.shield = 10;
-    this._spark(p.x, p.y, COLORS.power, 16);
+    if (type === "heal") {
+      this.lives = Math.min(this.lives + 1, MAX_LIVES);
+      this._emit();
+    }
+    if (type === "omni") p.omni = OMNI_TIME;
+    if (type === "overdrive") {
+      p.overdrive = OVERDRIVE_TIME;
+      p.invuln = OVERDRIVE_TIME;
+    }
+    if (type === "nuke") this._nuke();
+    this._spark(p.x, p.y, (POWER_META[type] || {}).c || COLORS.power, 16);
+  }
+
+  // screen-clear: vaporise every enemy on screen (score + XP for each), wipe
+  // incoming fire, big shake + white blast flash
+  _nuke() {
+    for (const e of this.enemies) {
+      this.score += e.score;
+      this._addXp(2);
+      this._explode(e.x, e.y, e.r);
+    }
+    this.enemies = [];
+    this.enemyBullets = [];
+    this.shake = 0.8;
+    this.flash = 0.35;
+    this._emit();
   }
 
   _spark(x, y, color, n) {
@@ -958,21 +1045,21 @@ export class Engine {
 
     // powerups
     for (const pw of this.powerups) {
+      const meta = POWER_META[pw.type] || { c: COLORS.power, g: "?" };
       ctx.save();
       ctx.translate(pw.x, pw.y);
       ctx.rotate(pw.spin);
       ctx.shadowBlur = 9;
-      ctx.shadowColor = COLORS.power;
-      ctx.strokeStyle = COLORS.power;
+      ctx.shadowColor = meta.c;
+      ctx.strokeStyle = meta.c;
       ctx.lineWidth = 2;
       ctx.strokeRect(-pw.r / 1.4, -pw.r / 1.4, pw.r * 1.4, pw.r * 1.4);
       ctx.restore();
       ctx.shadowBlur = 0;
-      ctx.fillStyle = COLORS.power;
+      ctx.fillStyle = meta.c;
       ctx.font = "bold 11px monospace";
       ctx.textAlign = "center";
-      const letter = pw.type === "triple" ? "T" : pw.type === "rapid" ? "R" : "S";
-      ctx.fillText(letter, pw.x, pw.y + 4);
+      ctx.fillText(meta.g, pw.x, pw.y + 4);
     }
 
     // player bullets
@@ -1005,6 +1092,7 @@ export class Engine {
 
     ctx.restore();
     this._drawHurt();
+    this._drawFlash();
   }
 
   // Thick pixel-art purple lightning. During the warn it shows a danger band
@@ -1055,7 +1143,9 @@ export class Engine {
   _drawPlayer() {
     const ctx = this.ctx;
     const p = this.player;
-    const blink = p.invuln > 0 && Math.floor(p.invuln * 12) % 2 === 0;
+    // blink while briefly invulnerable after a hit — but NOT during overdrive,
+    // where we want the ship shown solid inside its aura
+    const blink = p.invuln > 0 && p.overdrive <= 0 && Math.floor(p.invuln * 12) % 2 === 0;
     if (blink) return;
 
     ctx.save();
@@ -1069,6 +1159,28 @@ export class Engine {
       ctx.lineWidth = 2;
       ctx.shadowBlur = 5;
       ctx.shadowColor = COLORS.power;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (p.overdrive > 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, p.r + 12, 0, Math.PI * 2);
+      ctx.strokeStyle = "#39e0ff";
+      ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60);
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = "#39e0ff";
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (p.omni > 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = "#c77dff";
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = "#c77dff";
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -1190,7 +1302,9 @@ export class Engine {
     if (this.keys.has("arrowup") || this.keys.has("w")) dy -= 1;
     if (this.keys.has("arrowdown") || this.keys.has("s")) dy += 1;
     me.slow = Math.max(0, (me.slow || 0) - dt);
-    const slowK = me.slow > 0 ? HIT_SLOW_FACTOR : 1; // crippled engines after a hit
+    // overdrive supercharges the engines (and shrugs off the hit-slow)
+    const boost = me.overdrive ? 1.5 : 1;
+    const slowK = (me.slow > 0 && !me.overdrive ? HIT_SLOW_FACTOR : 1) * boost;
     if (dx || dy) {
       const len = Math.hypot(dx, dy) || 1;
       me.x += (dx / len) * me.speed * slowK * dt;
@@ -1241,6 +1355,8 @@ export class Engine {
         r.alive = p.alive;
         r.shield = p.shield;
         r.invuln = p.invuln;
+        r.od = p.od;
+        r.om = p.om;
       }
       const liveIds = new Set(this.snap.players.map((p) => p.id));
       for (const id of this.remote.keys()) if (!liveIds.has(id)) this.remote.delete(id);
@@ -1309,19 +1425,20 @@ export class Engine {
     if (snap) {
       // powerups
       for (const [px, py, type] of snap.pw) {
+        const meta = POWER_META[type] || { c: COLORS.power, g: "?" };
         ctx.save();
         ctx.translate(px, py);
         ctx.shadowBlur = 9;
-        ctx.shadowColor = COLORS.power;
-        ctx.strokeStyle = COLORS.power;
+        ctx.shadowColor = meta.c;
+        ctx.strokeStyle = meta.c;
         ctx.lineWidth = 2;
         ctx.strokeRect(-9, -9, 18, 18);
         ctx.restore();
         ctx.shadowBlur = 0;
-        ctx.fillStyle = COLORS.power;
+        ctx.fillStyle = meta.c;
         ctx.font = "bold 12px monospace";
         ctx.textAlign = "center";
-        ctx.fillText(type === "triple" ? "T" : type === "rapid" ? "R" : "S", px, py + 4);
+        ctx.fillText(meta.g, px, py + 4);
       }
 
       // particles (world space)
@@ -1364,7 +1481,7 @@ export class Engine {
       // remote players
       for (const [id, r] of this.remote) {
         if (id === this.net?.id) continue;
-        if (r.alive) this._drawNetShip(r.x, r.y, r.name, r.country, { remote: true, shield: r.shield, invuln: r.invuln });
+        if (r.alive) this._drawNetShip(r.x, r.y, r.name, r.country, { remote: true, shield: r.shield, invuln: r.invuln, od: r.od, om: r.om });
       }
 
       // me (locally predicted)
@@ -1374,12 +1491,15 @@ export class Engine {
           remote: false,
           shield: meSnap?.shield,
           invuln: meSnap?.invuln,
+          od: meSnap?.od,
+          om: meSnap?.om,
         });
       }
     }
 
     ctx.restore();
     this._drawHurt();
+    this._drawFlash();
   }
 
   /* ── damage feedback: red zap + frost vignette over the screen ───── */
@@ -1407,12 +1527,24 @@ export class Engine {
     ctx.restore();
   }
 
-  _drawNetShip(x, y, name, country, { remote, shield, invuln }) {
+  /* ── nuke blast: brief white screen flash ──────────────────────────── */
+  _drawFlash() {
+    if (this.flash <= 0) return;
+    const ctx = this.ctx;
+    const k = Math.min(1, this.flash / 0.35);
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${0.6 * k})`;
+    ctx.fillRect(0, 0, this.W, this.H);
+    ctx.restore();
+  }
+
+  _drawNetShip(x, y, name, country, { remote, shield, invuln, od, om }) {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(x, y);
 
-    if (invuln && Math.floor(performance.now() / 80) % 2 === 0) ctx.globalAlpha = 0.4;
+    // blink while briefly invulnerable — but show solid during overdrive
+    if (invuln && !od && Math.floor(performance.now() / 80) % 2 === 0) ctx.globalAlpha = 0.4;
 
     if (shield) {
       ctx.beginPath();
@@ -1422,6 +1554,28 @@ export class Engine {
       ctx.shadowBlur = 5;
       ctx.shadowColor = COLORS.power;
       ctx.stroke();
+    }
+    if (od) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 28, 0, Math.PI * 2);
+      ctx.strokeStyle = "#39e0ff";
+      ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60);
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = "#39e0ff";
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (om) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.strokeStyle = "#c77dff";
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = "#c77dff";
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     this._drawShip(!!remote);
