@@ -445,42 +445,63 @@ function spawnEnemy(room, intensity = 1) {
 /* ── The Gus's lightning storm (authoritative) ────────────────────────── */
 function startStorm(room) {
   const hard = room.wave >= 10; // wave 10+ → stronger, harder to dodge
-  room.storm = { t: 0, duration: hard ? 7 : 5, spawnCd: 0.4, hard };
+  // intro = the caption taunt (no bolts); then the active bolt barrage
+  room.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 8 : 6, spawnCd: 0.25, hard };
   room.enemies = []; // enemies vanish for the storm
   room.ebullets = [];
 }
 function spawnBolt(room, hard) {
+  const targets = [...room.players.values()].filter((p) => p.alive);
+  const tgt = targets.length ? targets[(Math.random() * targets.length) | 0] : null;
   room.lightning.push({
-    x: rand(40, WORLD.w - 40),
+    x: tgt ? tgt.x : rand(40, WORLD.w - 40),
     t: 0,
-    warn: hard ? 0.5 : 0.85, // shorter telegraph = harder
-    strike: 0.32,
-    half: hard ? 26 : 22,
+    warn: hard ? 0.7 : 0.9,
+    strike: 0.34,
+    half: hard ? 52 : 42, // big, thick kill zone
+    lockLead: hard ? 0.22 : 0.32,
+    lock: false,
+    targetId: tgt ? tgt.id : null,
     seed: (Math.random() * 1e6) | 0,
   });
 }
 function updateLightning(room, dt) {
-  if (room.wave > 4 && room.lightningTimer > 1e8) room.lightningTimer = 18; // first one ~18s after wave 4
+  if (room.wave >= 5 && room.lightningTimer > 1e8) room.lightningTimer = 0; // first storm IMMEDIATELY at wave 5
   if (room.storm) {
-    room.storm.t += dt;
-    room.storm.spawnCd -= dt;
-    const hard = room.storm.hard;
-    if (room.storm.spawnCd <= 0 && room.storm.t < room.storm.duration - 0.8) {
-      room.storm.spawnCd = hard ? rand(0.32, 0.6) : rand(0.85, 1.25);
-      const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.35 ? 1 : 0);
-      for (let i = 0; i < n; i++) spawnBolt(room, hard);
+    const s = room.storm;
+    s.t += dt;
+    if (s.phase === "intro") {
+      if (s.t >= s.introDur) {
+        s.phase = "active";
+        s.t = 0;
+        s.spawnCd = 0.2;
+      }
+    } else {
+      s.spawnCd -= dt;
+      const hard = s.hard;
+      if (s.spawnCd <= 0 && s.t < s.duration - 0.8) {
+        s.spawnCd = hard ? rand(0.3, 0.55) : rand(0.7, 1.05);
+        const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.45 ? 1 : 0);
+        for (let i = 0; i < n; i++) spawnBolt(room, hard);
+      }
+      if (s.t >= s.duration && room.lightning.length === 0) {
+        room.storm = null; // enemies return
+        room.lightningTimer = 180; // next storm in 3 min
+      }
     }
-    if (room.storm.t >= room.storm.duration && room.lightning.length === 0) {
-      room.storm = null; // enemies return
-      room.lightningTimer = 180; // next storm in 3 min
-    }
-  } else if (room.wave > 4) {
+  } else if (room.wave >= 5) {
     room.lightningTimer -= dt;
     if (room.lightningTimer <= 0) startStorm(room);
   }
-  // advance bolts; a strike zaps any pilot sharing its column
+  // advance bolts: home on the target until the lock, then zap its column
   room.lightning = room.lightning.filter((b) => {
     b.t += dt;
+    const tgt = b.targetId != null ? room.players.get(b.targetId) : null;
+    if (!b.lock && b.t < b.warn - b.lockLead && tgt && tgt.alive) {
+      b.x = clamp(tgt.x, 40, WORLD.w - 40); // follow the ship
+    } else {
+      b.lock = true;
+    }
     if (b.t >= b.warn && b.t < b.warn + b.strike) {
       for (const p of room.players.values()) {
         if (p.alive && p.invuln <= 0 && Math.abs(p.x - b.x) < b.half) hitPlayer(p);
@@ -720,8 +741,11 @@ function snapshot(room) {
     pb: room.pbullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
     eb: room.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
     pw: room.powerups.map((p) => [Math.round(p.x), Math.round(p.y), p.type]),
-    // lightning bolts: [x, t, warn, strike, half, seed]
-    lt: room.lightning.map((b) => [Math.round(b.x), +b.t.toFixed(2), b.warn, b.strike, b.half, b.seed]),
+    storm: room.storm ? room.storm.phase : null,
+    // lightning bolts: [x, t, warn, strike, half, seed, lock]
+    lt: room.lightning.map((b) => [
+      Math.round(b.x), +b.t.toFixed(2), b.warn, b.strike, b.half, b.seed, b.lock ? 1 : 0,
+    ]),
   };
 }
 

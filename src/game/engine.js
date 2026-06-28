@@ -227,9 +227,10 @@ export class Engine {
     this.spawnTimer = 0;
     this.shake = 0;
     this.grace = false; // calm warm-up while the villain talks (set by the UI)
-    // The Gus's lightning storms — armed after wave 4, recur every 3 min
+    // The Gus's lightning storms — armed at wave 5, recur every 3 min
     this.lightning = [];
     this.storm = null;
+    this.stormPhase = null;
     this.lightningTimer = 1e9;
     this.status = "playing";
     this._emit();
@@ -257,6 +258,7 @@ export class Engine {
     this.prevMyLives = null;
     // my locally-predicted ship, in WORLD coordinates
     this.me = { x: this.world.w / 2, y: this.world.h - 90, r: 16, speed: 480, slow: 0 };
+    this.stormPhase = null;
     this.level = 1;
     this.xp = 0;
     this.xpNext = xpForLevel(1);
@@ -312,13 +314,16 @@ export class Engine {
     const myLevel = me && me.lvl != null ? me.lvl : this.level;
     const myXp = me && me.xp != null ? me.xp : this.xp;
     const myXpNext = me && me.xn != null ? me.xn : this.xpNext;
+    const nextStorm = snap.storm ?? null;
     const changed =
       this.score !== snap.teamScore ||
       this.wave !== snap.wave ||
       this.lives !== (me ? me.lives : 0) ||
       this.level !== myLevel ||
       this.xp !== myXp ||
+      this.stormPhase !== nextStorm ||
       this.status !== nextStatus;
+    this.stormPhase = nextStorm;
     this.score = snap.teamScore;
     this.wave = snap.wave;
     this.lives = me ? me.lives : 0;
@@ -485,6 +490,7 @@ export class Engine {
       level: this.level,
       xp: this.xp,
       xpNext: this.xpNext,
+      storm: this.stormPhase ?? null,
     });
   }
 
@@ -699,30 +705,49 @@ export class Engine {
   /* ── The Gus's purple lightning storm ──────────────────────────── */
   _updateLightning(dt) {
     const p = this.player;
-    // arm once past wave 4 — first storm ~18s later, then every 3 min
-    if (this.wave > 4 && this.lightningTimer > 1e8) this.lightningTimer = 18;
+    // the moment the pilot reaches wave 5 the first storm hits IMMEDIATELY,
+    // then every 3 minutes
+    if (this.wave >= 5 && this.lightningTimer > 1e8) this.lightningTimer = 0;
 
     if (this.storm) {
-      this.storm.t += dt;
-      this.storm.spawnCd -= dt;
-      const hard = this.storm.hard;
-      if (this.storm.spawnCd <= 0 && this.storm.t < this.storm.duration - 0.8) {
-        this.storm.spawnCd = hard ? rand(0.32, 0.6) : rand(0.85, 1.25);
-        const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.35 ? 1 : 0);
-        for (let i = 0; i < n; i++) this._spawnBolt(hard);
+      const s = this.storm;
+      s.t += dt;
+      if (s.phase === "intro") {
+        // The Gus taunts (caption shows in the UI) — no bolts yet
+        if (s.t >= s.introDur) {
+          s.phase = "active";
+          s.t = 0;
+          s.spawnCd = 0.2;
+          this._setStormPhase("active");
+        }
+      } else {
+        s.spawnCd -= dt;
+        const hard = s.hard;
+        if (s.spawnCd <= 0 && s.t < s.duration - 0.8) {
+          s.spawnCd = hard ? rand(0.3, 0.55) : rand(0.7, 1.05);
+          const n = hard ? 1 + ((Math.random() * 3) | 0) : 1 + (Math.random() < 0.45 ? 1 : 0);
+          for (let i = 0; i < n; i++) this._spawnBolt(hard);
+        }
+        if (s.t >= s.duration && this.lightning.length === 0) {
+          this.storm = null; // storm over → enemies return
+          this.lightningTimer = 180; // next one in 3 minutes
+          this._setStormPhase(null);
+        }
       }
-      if (this.storm.t >= this.storm.duration && this.lightning.length === 0) {
-        this.storm = null; // storm over → enemies return
-        this.lightningTimer = 180; // next one in 3 minutes
-      }
-    } else if (this.wave > 4) {
+    } else if (this.wave >= 5) {
       this.lightningTimer -= dt;
       if (this.lightningTimer <= 0) this._startStorm();
     }
 
-    // advance bolts; a strike zaps the pilot if they share its column
+    // advance bolts: they HOME on the ship during the warn, lock just before
+    // the strike (giving a tiny dodge window), then zap its column
     this.lightning = this.lightning.filter((b) => {
       b.t += dt;
+      if (!b.lock && b.t < b.warn - b.lockLead && p) {
+        b.x = clamp(p.x, 40, this.W - 40); // follow the ship
+      } else {
+        b.lock = true; // committed
+      }
       if (b.t >= b.warn && b.t < b.warn + b.strike && p && p.invuln <= 0) {
         if (Math.abs(p.x - b.x) < b.half) this._hitPlayer();
       }
@@ -732,19 +757,30 @@ export class Engine {
 
   _startStorm() {
     const hard = this.wave >= 10; // wave 10+ → stronger, harder to dodge
-    this.storm = { t: 0, duration: hard ? 7 : 5, spawnCd: 0.4, hard };
+    // intro = the caption taunt (no bolts); then the active bolt barrage
+    this.storm = { phase: "intro", t: 0, introDur: 10, duration: hard ? 8 : 6, spawnCd: 0.25, hard };
     this.enemies = []; // enemies disappear for the storm
     this.enemyBullets = [];
-    this.shake = 0.4;
+    this.shake = 0.3;
+    this._setStormPhase("intro");
+  }
+
+  _setStormPhase(ph) {
+    if (ph !== this.stormPhase) {
+      this.stormPhase = ph;
+      this._emit();
+    }
   }
 
   _spawnBolt(hard) {
     this.lightning.push({
-      x: rand(40, this.W - 40),
+      x: this.player ? this.player.x : this.W / 2,
       t: 0,
-      warn: hard ? 0.5 : 0.85, // shorter telegraph = harder to dodge
-      strike: 0.32,
-      half: hard ? 26 : 22, // wider strike when hard
+      warn: hard ? 0.7 : 0.9,
+      strike: 0.34,
+      half: hard ? 52 : 42, // big, thick kill zone
+      lockLead: hard ? 0.22 : 0.32, // shorter reaction window when hard
+      lock: false,
       seed: (Math.random() * 1e6) | 0,
     });
   }
@@ -964,39 +1000,46 @@ export class Engine {
     this._drawHurt();
   }
 
-  // Pixel-art purple lightning: a telegraph line, then a jagged bolt that
-  // flickers each frame. `worldH` is the column height in the active transform.
+  // Thick pixel-art purple lightning. During the warn it shows a danger band
+  // (the kill zone) that homes on the ship and solidifies when it locks; then
+  // a fat jagged bolt strikes down that zone. `worldH` = column height.
   _drawLightning(bolts, worldH) {
     const ctx = this.ctx;
-    const PS = 6;
+    const PS = 9; // chunky pixels
     for (const b of bolts) {
-      const warning = b.t < b.warn;
-      if (warning) {
-        // telegraph: a thin flickering purple beam where the bolt will land
-        ctx.fillStyle = `rgba(168,85,247,${Math.sin(b.t * 42) > 0 ? 0.5 : 0.18})`;
-        ctx.fillRect(b.x - 2, 0, 4, worldH);
+      if (b.t < b.warn) {
+        // danger-zone telegraph — follows the ship, then goes solid on lock
+        const flick = b.lock ? 0.42 : Math.sin(b.t * 30) > 0 ? 0.3 : 0.12;
+        ctx.fillStyle = `rgba(176,80,255,${flick})`;
+        ctx.fillRect(b.x - b.half, 0, b.half * 2, worldH);
+        ctx.fillStyle = `rgba(230,200,255,${b.lock ? 0.95 : 0.5})`;
+        ctx.fillRect(b.x - 3, 0, 6, worldH); // center guide
         continue;
       }
       const past = b.t - b.warn - b.strike;
       ctx.globalAlpha = past > 0 ? Math.max(0, 1 - past / 0.18) : 1;
+      // faint danger band lingers during the strike
+      ctx.fillStyle = "rgba(168,85,247,0.2)";
+      ctx.fillRect(b.x - b.half, 0, b.half * 2, worldH);
       // seeded jag, reseeded by time so it flickers like real lightning
-      let seed = b.seed + Math.floor(b.t * 28);
+      let seed = b.seed + Math.floor(b.t * 30);
       const rnd = () => {
         seed = (seed * 9301 + 49297) % 233280;
         return seed / 233280;
       };
       let x = b.x;
-      // layered rects give the glow cheaply (no per-segment shadowBlur)
+      const bw = Math.max(PS * 2, Math.round(b.half * 0.7)); // fat body
       for (let y = 0; y < worldH; y += PS) {
-        x = clamp(x + (rnd() - 0.5) * PS * 2.4, b.x - b.half, b.x + b.half);
+        x = clamp(x + (rnd() - 0.5) * PS * 2.2, b.x - b.half * 0.4, b.x + b.half * 0.4);
         const px = Math.round(x / PS) * PS;
-        ctx.fillStyle = "rgba(168,85,247,0.35)"; // outer glow
-        ctx.fillRect(px - PS * 2, y, PS * 5, PS);
-        ctx.fillStyle = "#c97bff"; // body
-        ctx.fillRect(px - PS, y, PS * 3, PS);
+        ctx.fillStyle = "rgba(176,80,255,0.5)"; // glow
+        ctx.fillRect(px - bw / 2 - PS, y, bw + PS * 2, PS);
+        ctx.fillStyle = "#b35cff"; // body
+        ctx.fillRect(px - bw / 2, y, bw, PS);
+        ctx.fillStyle = "#e6c8ff"; // inner
+        ctx.fillRect(px - PS, y, PS * 2, PS);
         ctx.fillStyle = "#ffffff"; // bright core
-        ctx.fillRect(px, y, PS, PS);
-        if (rnd() < 0.25) ctx.fillRect(px - PS * 2, y, PS, PS); // branch flicker
+        ctx.fillRect(px - PS / 2, y, PS, PS);
       }
       ctx.globalAlpha = 1;
     }
@@ -1303,9 +1346,11 @@ export class Engine {
         this._drawEnemy({ x: v.x, y: v.y, r: e.r, hp: e.hp, maxHp: e.mh });
       }
 
-      // lightning storm bolts (from the snapshot: [x, t, warn, strike, half, seed])
+      // lightning storm bolts (snapshot: [x, t, warn, strike, half, seed, lock])
       if (snap.lt && snap.lt.length) {
-        const bolts = snap.lt.map((b) => ({ x: b[0], t: b[1], warn: b[2], strike: b[3], half: b[4], seed: b[5] }));
+        const bolts = snap.lt.map((b) => ({
+          x: b[0], t: b[1], warn: b[2], strike: b[3], half: b[4], seed: b[5], lock: !!b[6],
+        }));
         this._drawLightning(bolts, this.world.h);
       }
 

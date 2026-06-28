@@ -195,6 +195,7 @@ export default function App() {
   const [xp, setXp] = useState(0);
   const [xpNext, setXpNext] = useState(30);
   const [levelUp, setLevelUp] = useState(null); // {n, key} → triggers the banner
+  const [storm, setStorm] = useState(null); // null | "intro" | "active" (lightning storm)
   const prevLevelRef = useRef(1);
   const [high, setHigh] = useState(() => Number(localStorage.getItem(HIGH_KEY) || 0));
   const [leaderboard, setLeaderboard] = useState(loadLeaderboard);
@@ -203,7 +204,7 @@ export default function App() {
   // build engine once
   useEffect(() => {
     const engine = new Engine(canvasRef.current, {
-      onState: ({ score, lives, wave, status, level, xp, xpNext }) => {
+      onState: ({ score, lives, wave, status, level, xp, xpNext, storm }) => {
         setScore(score);
         setLives(lives);
         setWave(wave);
@@ -211,6 +212,7 @@ export default function App() {
         if (level != null) setLevel(level);
         if (xp != null) setXp(xp);
         if (xpNext != null) setXpNext(xpNext);
+        setStorm(storm ?? null);
       },
     });
     engineRef.current = engine;
@@ -483,6 +485,9 @@ export default function App() {
 
       {/* The devil fades in and taunts you mid-flight, then 3·2·1·START! */}
       {villain && <VillainSequence onStart={villainStart} onDone={endVillain} />}
+
+      {/* Lightning-storm taunt caption (no orb) — plays before the bolts */}
+      {storm === "intro" && playing && <StormCaption />}
 
 
       {/* HUD */}
@@ -1134,6 +1139,22 @@ function BallDevil() {
 
 // Over the LIVE (calm) game: the devil fades in, taunts via auto-advancing
 // subtitles, then a 3·2·1·START! countdown kicks off the full battle.
+// The Gus's taunt before a lightning storm — just the caption, no orb.
+const STORM_TAUNT = "Wow, you reached this already? Sure, I assume you're prepared for some of my power? Hehe…";
+function StormCaption() {
+  const [chars, setChars] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setChars((c) => (c >= STORM_TAUNT.length ? c : c + 1)), 42);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="villain-sub storm-cap" aria-hidden="true">
+      <span className="villain-sub-name">THE GUS</span>
+      <span className="villain-sub-text">{STORM_TAUNT.slice(0, chars)}</span>
+    </div>
+  );
+}
+
 function VillainSequence({ onStart, onDone }) {
   const [phase, setPhase] = useState("talk"); // talk | count | go
   const [line, setLine] = useState(0);
