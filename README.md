@@ -20,11 +20,18 @@ On touch / mouse: **tap and drag** to fly — the ship auto-fires while held.
 
 - **Waves** ramp every ~18s: faster spawns, tougher enemies, more enemy fire.
 - **Enemies**: red triangles (1 HP) and red hexes (3 HP, tougher).
-- **Power-ups** drop from kills — fly into them to collect:
+- **Power-ups** drop from kills — fly into them to collect. The three commons
+  drop often; the four special buffs are rarer treats:
   - `T` — **Triple shot** (8s spread fire)
   - `R` — **Rapid fire** (8s faster cadence)
   - `S` — **Shield** (10s, absorbs one hit)
-- 3 ships (lives). A hit costs a ship unless a shield is up. Game over at 0.
+  - `+` — **Heal** — restores one ship (up to a max of 5)
+  - `N` — **Nuke** — vaporises every enemy on screen and wipes incoming fire
+  - `O` — **Omni-fire** (8s) — fire a 16-way barrage in *every* direction
+  - `X` — **Overdrive** (4s) — full invincibility + speed boost; ram straight
+    through enemies to destroy them
+- 3 ships (lives), up to 5 with heals. A hit costs a ship unless a shield is
+  up. Game over at 0.
 - High score is saved in `localStorage`.
 
 ## Multiplayer (co-op)

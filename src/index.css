@@ -362,6 +362,101 @@ body {
   .intro-ok { animation: none; }
 }
 
+/* ── Intro buff legend (left side, pixel-art) ─────────────────────── */
+.intro-buffs {
+  position: absolute;
+  left: max(20px, 3vw);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  width: 248px;
+  background: rgba(8, 12, 26, 0.82);
+  border: 2px solid rgba(96, 165, 250, 0.35);
+  /* hard pixel-corner frame */
+  box-shadow: 4px 4px 0 #0b1020, 0 0 26px rgba(37, 99, 235, 0.25);
+  image-rendering: pixelated;
+  animation: introReveal 1.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.intro-buffs-title {
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--c-blue-glow);
+  text-shadow: 2px 2px 0 #0b1020, 0 0 14px rgba(37, 99, 235, 0.6);
+  border-bottom: 2px solid rgba(96, 165, 250, 0.25);
+  padding-bottom: 8px;
+}
+.intro-buffs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.buff-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* faint divider above the first new buff */
+.buff-row-new:first-of-type {
+  border-top: 1px dashed rgba(199, 125, 255, 0.4);
+  padding-top: 10px;
+  margin-top: 1px;
+}
+.buff-chip {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  font-weight: bold;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid currentColor;
+}
+.buff-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.buff-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.buff-new {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: #0b1020;
+  background: #ffd23f;
+  padding: 1px 4px;
+  box-shadow: 1px 1px 0 #0b1020;
+}
+.buff-desc {
+  font-family: var(--font-term);
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+/* the legend would crowd the welcome on small screens — hide it there */
+@media (max-width: 920px) {
+  .intro-buffs { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-buffs { animation: none; }
+}
+
 /* ── Callsign-change warning (registration) ───────────────────────── */
 .reg-warning {
   font-family: var(--font-term);

@@ -997,9 +997,47 @@ function Overlay({ children, className = "" }) {
 
 // Personalized welcome shown as gameplay begins — a slow "magic" fade-in over
 // a drifting pixel field. The round is held until the pilot clicks OK!.
+// Power-up legend shown in the intro — glyphs/colours match the in-game drops
+// (see POWER_META in src/game/engine.js). The four below the rule are the new
+// player-requested buffs.
+const INTRO_BUFFS = [
+  { g: "T", c: "#22C55E", name: "TRIPLE", desc: "3-way spread fire" },
+  { g: "R", c: "#22C55E", name: "RAPID", desc: "Faster fire rate" },
+  { g: "S", c: "#22C55E", name: "SHIELD", desc: "Blocks one hit" },
+  { g: "+", c: "#ff5a8a", name: "HEAL", desc: "+1 ship (max 5)", isNew: true },
+  { g: "N", c: "#ffd23f", name: "NUKE", desc: "Clears the screen", isNew: true },
+  { g: "O", c: "#c77dff", name: "OMNI", desc: "Fire every direction", isNew: true },
+  { g: "X", c: "#39e0ff", name: "OVERDRIVE", desc: "Invincible ram", isNew: true },
+];
+
+function BuffLegend() {
+  return (
+    <aside className="intro-buffs" aria-label="Power-up guide">
+      <p className="intro-buffs-title">BUFFS</p>
+      <ul className="intro-buffs-list">
+        {INTRO_BUFFS.map((b) => (
+          <li className={`buff-row${b.isNew ? " buff-row-new" : ""}`} key={b.g}>
+            <span className="buff-chip" style={{ color: b.c, borderColor: b.c, textShadow: `0 0 8px ${b.c}` }}>
+              {b.g}
+            </span>
+            <span className="buff-text">
+              <span className="buff-name" style={{ color: b.c }}>
+                {b.name}
+                {b.isNew && <span className="buff-new">NEW</span>}
+              </span>
+              <span className="buff-desc">{b.desc}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+
 function Intro({ name, mode, onOk, onReturn }) {
   return (
     <div className="overlay intro-overlay">
+      <BuffLegend />
       <div className="intro-content">
         <p className="intro-welcome">WELCOME TO</p>
         <h1 className="intro-title">
